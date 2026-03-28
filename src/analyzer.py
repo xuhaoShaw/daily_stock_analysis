@@ -62,9 +62,9 @@ _LLM_SENSITIVE_PATTERNS = (
     ),
     (
         re.compile(
-            r'(?i)"(api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|session[_-]?id)"\s*:\s*"[^"]*"'
+            r'(?i)(["\'])(api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|session[_-]?id)\1\s*:\s*(["\'])[^"\']*\3'
         ),
-        r'"\1":"[REDACTED]"',
+        r"\1\2\1:\3[REDACTED]\3",
     ),
     (
         re.compile(
@@ -85,12 +85,9 @@ _LLM_SENSITIVE_PATTERNS = (
 
 def _should_log_llm_content_preview(config: Optional[Config] = None) -> bool:
     """Allow LLM content preview only under explicit debug switches."""
-    if config is None:
-        if is_sensitive_log_preview_enabled():
-            return True
-        runtime_config = get_config()
-    else:
-        runtime_config = config
+    if is_sensitive_log_preview_enabled():
+        return True
+    runtime_config = config if config is not None else get_config()
     return bool(
         getattr(runtime_config, "debug", False)
         or str(getattr(runtime_config, "log_level", "INFO") or "INFO").upper() == "DEBUG"

@@ -88,10 +88,10 @@ def test_should_log_llm_content_preview_accepts_existing_debug_switches():
     assert _should_log_llm_content_preview() is True
 
 
-def test_should_log_llm_content_preview_recomputes_from_current_runtime_config():
+def test_should_log_llm_content_preview_honors_explicit_process_preview_flag():
     set_sensitive_log_preview_enabled(True)
 
-    assert not _should_log_llm_content_preview(_make_config())
+    assert _should_log_llm_content_preview(_make_config())
 
 
 def test_setup_logging_only_enables_sensitive_preview_for_explicit_debug_levels(tmp_path):
@@ -164,10 +164,36 @@ def test_analyze_logs_only_redacted_single_line_preview_in_debug_mode(caplog, mo
     assert "..." in response_preview
 
 
+def test_analyze_honors_sensitive_preview_flag_with_non_debug_runtime_config(caplog, monkeypatch):
+    set_sensitive_log_preview_enabled(True)
+    prompt = "{'api_key':'sk-live-123456'}"
+    response_text = "{'password':'open-sesame'}"
+    analyzer = _make_analyzer(_make_config(), prompt, response_text)
+    monkeypatch.setattr("src.analyzer.persist_llm_usage", lambda *args, **kwargs: None)
+
+    with caplog.at_level(logging.DEBUG, logger="src.analyzer"):
+        analyzer.analyze({"code": "600519", "stock_name": "贵州茅台"}, news_context=None)
+
+    assert "LLM Prompt 调试预览" in caplog.text
+    assert "LLM返回 调试预览" in caplog.text
+    assert "sk-live-123456" not in caplog.text
+    assert "open-sesame" not in caplog.text
+    assert "'api_key':'[REDACTED]'" in caplog.text
+    assert "'password':'[REDACTED]'" in caplog.text
+
+
 def test_sanitize_llm_log_preview_redacts_quoted_json_credential_fields():
     preview = _sanitize_llm_log_preview('{"api_key":"sk-live-123456","password":"hunter2"}')
 
     assert preview == '{"api_key":"[REDACTED]","password":"[REDACTED]"}'
+    assert "sk-live-123456" not in preview
+    assert "hunter2" not in preview
+
+
+def test_sanitize_llm_log_preview_redacts_single_quoted_credential_fields():
+    preview = _sanitize_llm_log_preview("{'api_key':'sk-live-123456','password':'hunter2'}")
+
+    assert preview == "{'api_key':'[REDACTED]','password':'[REDACTED]'}"
     assert "sk-live-123456" not in preview
     assert "hunter2" not in preview
 
