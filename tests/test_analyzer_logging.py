@@ -276,6 +276,7 @@ def test_sanitize_llm_log_preview_redacts_quoted_x_api_key_fields(raw_preview, e
     [
         ("OPENAI_API_KEY=sk-live-123456", "OPENAI_API_KEY=[REDACTED]"),
         ('GEMINI_API_KEY="sk-live-123456"', 'GEMINI_API_KEY="[REDACTED]"'),
+        ("id_token=xyz", "id_token=[REDACTED]"),
     ],
 )
 def test_sanitize_llm_log_preview_redacts_provider_prefixed_api_key_assignments(
@@ -285,6 +286,13 @@ def test_sanitize_llm_log_preview_redacts_provider_prefixed_api_key_assignments(
 
     assert preview == expected_preview
     assert "sk-live-123456" not in preview
+
+
+def test_sanitize_llm_log_preview_redacts_provider_prefixed_secret_fields():
+    preview = _sanitize_llm_log_preview('{"client_secret":"abc123"}')
+
+    assert preview == '{"client_secret":"[REDACTED]"}'
+    assert "abc123" not in preview
 
 
 @pytest.mark.parametrize(
