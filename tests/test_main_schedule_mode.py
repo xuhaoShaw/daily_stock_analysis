@@ -79,14 +79,25 @@ class MainScheduleModeTestCase(unittest.TestCase):
         config = self._make_config(schedule_enabled=False)
         scheduled_call = {}
 
-        def fake_run_with_schedule(task, schedule_time, run_immediately, background_tasks=None):
+        def fake_run_with_schedule(
+            task,
+            schedule_time,
+            run_immediately,
+            background_tasks=None,
+            schedule_time_provider=None,
+        ):
             scheduled_call["schedule_time"] = schedule_time
             scheduled_call["run_immediately"] = run_immediately
             scheduled_call["background_tasks"] = background_tasks or []
+            scheduled_call["resolved_schedule_time"] = (
+                schedule_time_provider() if schedule_time_provider is not None else None
+            )
             task()
 
         with patch("main.parse_arguments", return_value=args), \
              patch("main.get_config", return_value=config), \
+             patch("main._reload_runtime_config", return_value=config), \
+             patch("main._build_schedule_time_provider", return_value=lambda: "18:00"), \
              patch("main.setup_logging"), \
              patch("main.run_full_analysis") as run_full_analysis, \
              patch("main.logger.warning") as warning_log, \
@@ -96,12 +107,52 @@ class MainScheduleModeTestCase(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(
             scheduled_call,
-            {"schedule_time": "18:00", "run_immediately": True, "background_tasks": []},
+            {
+                "schedule_time": "18:00",
+                "run_immediately": True,
+                "background_tasks": [],
+                "resolved_schedule_time": "18:00",
+            },
         )
         run_full_analysis.assert_called_once_with(config, args, None)
         warning_log.assert_any_call(
             "定时模式下检测到 --stocks 参数；计划执行将忽略启动时股票快照，并在每次运行前重新读取最新的 STOCK_LIST。"
         )
+
+    def test_schedule_mode_reload_uses_latest_runtime_config(self) -> None:
+        args = self._make_args(schedule=True)
+        startup_config = self._make_config(schedule_enabled=True, schedule_time="18:00")
+        runtime_config = self._make_config(schedule_enabled=True, schedule_time="09:30")
+        scheduled_call = {}
+
+        def fake_run_with_schedule(
+            task,
+            schedule_time,
+            run_immediately,
+            background_tasks=None,
+            schedule_time_provider=None,
+        ):
+            scheduled_call["schedule_time"] = schedule_time
+            scheduled_call["resolved_schedule_time"] = (
+                schedule_time_provider() if schedule_time_provider is not None else None
+            )
+            task()
+
+        with patch("main.parse_arguments", return_value=args), \
+             patch("main.get_config", return_value=startup_config), \
+             patch("main._reload_runtime_config", return_value=runtime_config), \
+             patch("main._build_schedule_time_provider", return_value=lambda: "09:30"), \
+             patch("main.setup_logging"), \
+             patch("main.run_full_analysis") as run_full_analysis, \
+             patch("src.scheduler.run_with_schedule", side_effect=fake_run_with_schedule):
+            exit_code = main.main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            scheduled_call,
+            {"schedule_time": "18:00", "resolved_schedule_time": "09:30"},
+        )
+        run_full_analysis.assert_called_once_with(runtime_config, args, None)
 
     def test_single_run_keeps_cli_stock_override(self) -> None:
         args = self._make_args(stocks="600519,000001")

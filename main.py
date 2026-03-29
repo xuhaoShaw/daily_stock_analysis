@@ -445,7 +445,7 @@ def run_full_analysis(
 def start_api_server(host: str, port: int, config: Config) -> None:
     """
     在后台线程启动 FastAPI 服务
-    
+
     Args:
         host: 监听地址
         port: 监听端口
@@ -473,6 +473,7 @@ def _is_truthy_env(var_name: str, default: str = "true") -> bool:
     """Parse common truthy / falsy environment values."""
     value = os.getenv(var_name, default).strip().lower()
     return value not in {"0", "false", "no", "off"}
+
 
 def start_bot_stream_clients(config: Config) -> None:
     """Start bot stream clients when enabled in config."""
@@ -514,6 +515,38 @@ def _resolve_scheduled_stock_codes(stock_codes: Optional[List[str]]) -> Optional
             "定时模式下检测到 --stocks 参数；计划执行将忽略启动时股票快照，并在每次运行前重新读取最新的 STOCK_LIST。"
         )
     return None
+
+
+def _reload_runtime_config() -> Config:
+    """Reload config from the latest persisted `.env` values for scheduled runs."""
+    Config.reset_instance()
+    setup_env(override=True)
+    return get_config()
+
+
+def _build_schedule_time_provider(default_schedule_time: str):
+    """Read the latest schedule time directly from the active config file."""
+    from src.core.config_manager import ConfigManager
+
+    manager = ConfigManager()
+
+    def _provider() -> str:
+        try:
+            config_map = manager.read_config_map()
+        except Exception as exc:  # pragma: no cover - defensive branch
+            logger.warning(
+                "读取最新 SCHEDULE_TIME 失败，继续沿用启动值 %s: %s",
+                default_schedule_time,
+                exc,
+            )
+            return default_schedule_time
+
+        schedule_time = (config_map.get("SCHEDULE_TIME", "") or "").strip()
+        if schedule_time:
+            return schedule_time
+        return os.getenv("SCHEDULE_TIME", default_schedule_time)
+
+    return _provider
 
 
 def main() -> int:
@@ -688,9 +721,11 @@ def main() -> int:
 
             from src.scheduler import run_with_schedule
             scheduled_stock_codes = _resolve_scheduled_stock_codes(stock_codes)
+            schedule_time_provider = _build_schedule_time_provider(config.schedule_time)
 
             def scheduled_task():
-                run_full_analysis(config, args, scheduled_stock_codes)
+                runtime_config = _reload_runtime_config()
+                run_full_analysis(runtime_config, args, scheduled_stock_codes)
 
             background_tasks = []
             if getattr(config, 'agent_event_monitor_enabled', False):
@@ -719,6 +754,7 @@ def main() -> int:
                 schedule_time=config.schedule_time,
                 run_immediately=should_run_immediately,
                 background_tasks=background_tasks,
+                schedule_time_provider=schedule_time_provider,
             )
             return 0
 
