@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """Regression tests for scheduled mode stock selection behavior."""
 
+import logging
 import os
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -26,11 +28,16 @@ class MainScheduleModeTestCase(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.env_path = Path(self.temp_dir.name) / ".env"
         self.env_path.write_text("STOCK_LIST=600519\n", encoding="utf-8")
+        self.original_cwd = os.getcwd()
+        os.chdir(self.temp_dir.name)
         self.env_patch = patch.dict(os.environ, {"ENV_FILE": str(self.env_path)}, clear=False)
         self.env_patch.start()
         Config.reset_instance()
 
     def tearDown(self) -> None:
+        logging.shutdown()
+        logging.getLogger().handlers.clear()
+        os.chdir(self.original_cwd)
         Config.reset_instance()
         self.env_patch.stop()
         self.temp_dir.cleanup()
@@ -320,6 +327,24 @@ class MainScheduleModeTestCase(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         run_full_analysis.assert_called_once_with(config, args, ["600519", "000001"])
+
+    def test_bootstrap_logging_persists_when_config_load_fails(self) -> None:
+        args = self._make_args()
+        log_file = (
+            Path(self.temp_dir.name)
+            / "logs"
+            / f"stock_analysis_{datetime.now().strftime('%Y%m%d')}.log"
+        )
+
+        with patch("main.parse_arguments", return_value=args), \
+             patch("main.get_config", side_effect=RuntimeError("config boom")):
+            exit_code = main.main()
+
+        self.assertEqual(exit_code, 1)
+        self.assertTrue(log_file.exists())
+        log_content = log_file.read_text(encoding="utf-8")
+        self.assertIn("加载配置失败", log_content)
+        self.assertIn("config boom", log_content)
 
 
 if __name__ == "__main__":
