@@ -1700,29 +1700,8 @@ class Config:
         return default
 
     @classmethod
-    def _normalize_runtime_env_override_value(
-        cls,
-        key: str,
-        value: Optional[str],
-    ) -> Optional[str]:
-        """Normalize runtime-mutable env values before override comparison."""
-        if value is None:
-            return None
-
-        text = str(value).strip()
-        if key in {"RUN_IMMEDIATELY", "SCHEDULE_ENABLED", "SCHEDULE_RUN_IMMEDIATELY"}:
-            return text.lower()
-        if key == "STOCK_LIST":
-            return ",".join(
-                part.strip().upper()
-                for part in text.split(",")
-                if part.strip()
-            )
-        return text
-
-    @classmethod
     def _capture_bootstrap_runtime_env_overrides(cls) -> None:
-        """Remember startup env overrides so real process overrides keep winning."""
+        """Remember startup env values only when `.env` has no persisted copy yet."""
         if cls._BOOTSTRAP_RUNTIME_ENV_OVERRIDES_CAPTURED:
             return
 
@@ -1734,12 +1713,6 @@ class Config:
 
             file_value = cls._get_env_file_value(key)
             if file_value is None:
-                explicit_overrides.add(key)
-                continue
-
-            normalized_env = cls._normalize_runtime_env_override_value(key, env_value)
-            normalized_file = cls._normalize_runtime_env_override_value(key, file_value)
-            if normalized_env != normalized_file:
                 explicit_overrides.add(key)
 
         cls._BOOTSTRAP_RUNTIME_ENV_OVERRIDES = frozenset(explicit_overrides)

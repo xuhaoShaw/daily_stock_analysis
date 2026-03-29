@@ -251,7 +251,7 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
         self.assertTrue(config.schedule_run_immediately)
 
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_runtime_mutable_keys_preserve_explicit_process_env_overrides(
+    def test_runtime_mutable_keys_prefer_updated_env_file_on_first_load(
         self,
         _mock_parse_yaml,
     ) -> None:
@@ -275,7 +275,7 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
                 os.environ,
                 {
                     "ENV_FILE": str(env_path),
-                    "STOCK_LIST": "600519",
+                    "STOCK_LIST": "600519,000001",
                     "SCHEDULE_ENABLED": "false",
                     "SCHEDULE_TIME": "18:00",
                     "RUN_IMMEDIATELY": "true",
@@ -285,11 +285,11 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
             ):
                 config = Config._load_from_env()
 
-        self.assertEqual(config.stock_list, ["600519"])
-        self.assertFalse(config.schedule_enabled)
-        self.assertEqual(config.schedule_time, "18:00")
-        self.assertTrue(config.run_immediately)
-        self.assertFalse(config.schedule_run_immediately)
+        self.assertEqual(config.stock_list, ["300750", "TSLA"])
+        self.assertTrue(config.schedule_enabled)
+        self.assertEqual(config.schedule_time, "09:30")
+        self.assertFalse(config.run_immediately)
+        self.assertTrue(config.schedule_run_immediately)
 
     def test_parse_report_language_accepts_known_alias_without_warning(self) -> None:
         with self.assertNoLogs("src.config", level="WARNING"):
