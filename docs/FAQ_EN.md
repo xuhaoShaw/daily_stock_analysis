@@ -92,12 +92,17 @@ This document compiles common issues encountered by users and their solutions.
 
 **Solution**:
 1. Ensure `.env` file is in project root directory
-2. **Docker deployment**: Restart container after modification
+2. **Docker deployment / WebUI Settings**:
+   - WebUI saves `STOCK_LIST`, `SCHEDULE_ENABLED`, `SCHEDULE_TIME`, `SCHEDULE_RUN_IMMEDIATELY`, and `RUN_IMMEDIATELY` back into the container's `.env`
+   - Recent versions prefer these persisted `.env` values on later starts or scheduled runs, so they are no longer silently overridden by stale container creation env vars
+   - `SCHEDULE_*` and `RUN_IMMEDIATELY` are still **startup-time scheduling settings**: saving them does not immediately trigger an analysis run and does not hot-rebuild the scheduler inside the current process
+   - To make schedule changes take over the current container, restart it and make sure the process is started in schedule mode
+3. **Manual `.env` edits in Docker**: Restart the container after changes
    ```bash
    docker-compose down && docker-compose up -d
    ```
-3. **GitHub Actions**: `.env` file doesn't work, must configure in Secrets/Variables
-4. Check if there are multiple `.env` files (e.g., `.env.local`) causing override
+4. **GitHub Actions**: `.env` file doesn't work, must configure in Secrets/Variables
+5. Check if there are multiple `.env` files (e.g., `.env.local`) causing override
 
 ---
 

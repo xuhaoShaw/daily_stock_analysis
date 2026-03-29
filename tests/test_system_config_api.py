@@ -126,6 +126,26 @@ class SystemConfigApiTestCase(unittest.TestCase):
         self.assertIn("\n\n# Secrets\n", env_content)
         self.assertIn("STOCK_LIST=600519,300750\n", env_content)
 
+    def test_put_config_returns_startup_only_schedule_warning(self) -> None:
+        current = system_config.get_system_config(include_schema=False, service=self.service).model_dump()
+        payload = system_config.update_system_config(
+            request=UpdateSystemConfigRequest(
+                config_version=current["config_version"],
+                reload_now=True,
+                items=[
+                    {"key": "RUN_IMMEDIATELY", "value": "false"},
+                    {"key": "SCHEDULE_RUN_IMMEDIATELY", "value": "true"},
+                ],
+            ),
+            service=self.service,
+        ).model_dump()
+
+        self.assertTrue(payload["success"])
+        joined = " | ".join(payload["warnings"])
+        self.assertIn("RUN_IMMEDIATELY", joined)
+        self.assertIn("SCHEDULE_RUN_IMMEDIATELY", joined)
+        self.assertIn("不会自动重建 scheduler", joined)
+
     def test_export_desktop_system_config_returns_raw_env_content(self) -> None:
         self.env_path.write_text(
             "# Desktop config\nSTOCK_LIST=600519,000001\nGEMINI_API_KEY=secret-key-value\n",

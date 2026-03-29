@@ -585,6 +585,22 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertIn("MAX_WORKERS=1", joined)
         self.assertIn("reload_now=false", joined)
 
+    def test_update_appends_startup_only_schedule_warning(self) -> None:
+        response = self.service.update(
+            config_version=self.manager.get_config_version(),
+            items=[
+                {"key": "SCHEDULE_ENABLED", "value": "true"},
+                {"key": "SCHEDULE_RUN_IMMEDIATELY", "value": "true"},
+            ],
+            reload_now=True,
+        )
+
+        self.assertTrue(response["success"])
+        joined = " | ".join(response["warnings"])
+        self.assertIn("SCHEDULE_ENABLED", joined)
+        self.assertIn("SCHEDULE_RUN_IMMEDIATELY", joined)
+        self.assertIn("不会因为本次保存立即触发分析", joined)
+        self.assertIn("不会自动重建 scheduler", joined)
 
     def test_validate_rejects_comma_only_api_key(self) -> None:
         """Whitespace/comma-only api_key must fail validation (P2: parsed-segment check)."""

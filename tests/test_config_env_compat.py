@@ -166,6 +166,49 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
 
         self.assertEqual(config.report_language, "en")
 
+    @patch("src.config.setup_env")
+    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
+    def test_runtime_mutable_keys_prefer_env_file_over_preexisting_process_env(
+        self,
+        _mock_parse_yaml,
+        _mock_setup_env,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_path = Path(temp_dir) / ".env"
+            env_path.write_text(
+                "\n".join(
+                    [
+                        "STOCK_LIST=300750,TSLA",
+                        "SCHEDULE_ENABLED=true",
+                        "SCHEDULE_TIME=09:30",
+                        "RUN_IMMEDIATELY=false",
+                        "SCHEDULE_RUN_IMMEDIATELY=true",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(
+                os.environ,
+                {
+                    "ENV_FILE": str(env_path),
+                    "STOCK_LIST": "600519",
+                    "SCHEDULE_ENABLED": "false",
+                    "SCHEDULE_TIME": "18:00",
+                    "RUN_IMMEDIATELY": "true",
+                    "SCHEDULE_RUN_IMMEDIATELY": "false",
+                },
+                clear=True,
+            ):
+                config = Config._load_from_env()
+
+        self.assertEqual(config.stock_list, ["300750", "TSLA"])
+        self.assertTrue(config.schedule_enabled)
+        self.assertEqual(config.schedule_time, "09:30")
+        self.assertFalse(config.run_immediately)
+        self.assertTrue(config.schedule_run_immediately)
+
     def test_parse_report_language_accepts_known_alias_without_warning(self) -> None:
         with self.assertNoLogs("src.config", level="WARNING"):
             parsed = Config._parse_report_language("zh-cn")

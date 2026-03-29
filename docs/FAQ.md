@@ -94,12 +94,17 @@
 
 **解决方案**：
 1. 确保 `.env` 文件位于项目根目录
-2. **Docker 部署**：修改后需重启容器
+2. **Docker 部署 / WebUI 系统设置**：
+   - WebUI 保存后的 `STOCK_LIST`、`SCHEDULE_ENABLED`、`SCHEDULE_TIME`、`SCHEDULE_RUN_IMMEDIATELY`、`RUN_IMMEDIATELY` 会写回容器内的 `.env`
+   - 新版本会在后续启动或计划执行时优先读取这些持久化值，避免被容器创建时注入的旧环境变量覆盖
+   - 其中 `SCHEDULE_*` 与 `RUN_IMMEDIATELY` 属于**启动期调度配置**，保存后不会立即触发一次分析，也不会热重建当前进程里的 scheduler
+   - 如需让调度开关立刻接管当前容器，请重启容器，并确保以 schedule 模式启动
+3. **Docker 手工改 `.env` 后**：修改后仍建议重启容器
    ```bash
    docker-compose down && docker-compose up -d
    ```
-3. **GitHub Actions**：`.env` 文件不生效，必须在 Secrets/Variables 中配置
-4. 检查是否有多个 `.env` 文件（如 `.env.local`）导致覆盖
+4. **GitHub Actions**：`.env` 文件不生效，必须在 Secrets/Variables 中配置
+5. 检查是否有多个 `.env` 文件（如 `.env.local`）导致覆盖
 
 ---
 
