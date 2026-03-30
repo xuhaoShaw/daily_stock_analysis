@@ -274,6 +274,40 @@ class MainScheduleModeTestCase(unittest.TestCase):
 
             self.assertEqual(provider(), "18:00")
 
+    def test_schedule_time_provider_falls_back_to_system_default_on_clear(self) -> None:
+        """When SCHEDULE_TIME is cleared/removed from config, provider returns '18:00'."""
+        with patch.dict(
+            os.environ,
+            {"SCHEDULE_TIME": "09:30"},
+            clear=False,
+        ), patch.object(
+            main,
+            "_INITIAL_PROCESS_ENV",
+            {},
+        ), patch(
+            "src.core.config_manager.ConfigManager.read_config_map",
+            return_value={},
+        ):
+            provider = main._build_schedule_time_provider("09:30")
+            self.assertEqual(provider(), "18:00")
+
+    def test_schedule_time_provider_falls_back_to_system_default_on_empty(self) -> None:
+        """When SCHEDULE_TIME is empty string in config, provider returns '18:00'."""
+        with patch.dict(
+            os.environ,
+            {"SCHEDULE_TIME": "09:30"},
+            clear=False,
+        ), patch.object(
+            main,
+            "_INITIAL_PROCESS_ENV",
+            {},
+        ), patch(
+            "src.core.config_manager.ConfigManager.read_config_map",
+            return_value={"SCHEDULE_TIME": "  "},
+        ):
+            provider = main._build_schedule_time_provider("09:30")
+            self.assertEqual(provider(), "18:00")
+
     def test_single_run_keeps_cli_stock_override(self) -> None:
         args = self._make_args(stocks="600519,000001")
         config = self._make_config(run_immediately=True)
