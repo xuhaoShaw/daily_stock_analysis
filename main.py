@@ -720,14 +720,14 @@ def main() -> int:
     try:
         _setup_bootstrap_logging(debug=args.debug)
     except Exception as exc:
-        # 如果 bootstrap 日志初始化失败，回退到最小化的 stderr 日志，避免程序直接崩溃
+        # 如果 bootstrap 日志目录不可写（容器/systemd 只读 CWD 等场景），
+        # 回退到 stderr 日志并继续运行；后续 config.log_dir 可能指向可写路径
         logging.basicConfig(
             level=logging.DEBUG if getattr(args, "debug", False) else logging.INFO,
             format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             stream=sys.stderr,
         )
-        logger.exception("初始化 bootstrap 日志失败: %s", exc)
-        return 1
+        logger.warning("Bootstrap 日志初始化失败，已回退到 stderr: %s", exc)
 
     try:
         _bootstrap_environment()

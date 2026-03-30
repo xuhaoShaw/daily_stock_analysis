@@ -355,6 +355,21 @@ class MainScheduleModeTestCase(unittest.TestCase):
         self.assertIn("加载配置失败", log_content)
         self.assertIn("config boom", log_content)
 
+    def test_bootstrap_logging_failure_does_not_block_startup(self) -> None:
+        """Bootstrap log dir unwritable must not prevent startup (P1 regression)."""
+        args = self._make_args()
+        config = self._make_config()
+
+        with patch("main.parse_arguments", return_value=args), \
+             patch("main.get_config", return_value=config), \
+             patch("main._setup_bootstrap_logging", side_effect=OSError("read-only fs")), \
+             patch("main.setup_logging"), \
+             patch("main.run_full_analysis") as run_mock:
+            exit_code = main.main()
+
+        self.assertEqual(exit_code, 0)
+        run_mock.assert_called_once()
+
     def test_run_full_analysis_import_failure_propagates(self) -> None:
         """P1: import failures in run_full_analysis must propagate, not be swallowed."""
         args = self._make_args()
