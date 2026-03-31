@@ -240,6 +240,46 @@ def test_send_followup_patches_original_message():
     assert call_args[1]["json"]["content"] == "分析结果"
 
 
+def test_send_followup_chunks_long_content():
+    """超过 2000 字符的 follow-up 应被分块：首块 PATCH，后续 POST。"""
+    from bot.models import BotMessage, BotResponse, ChatType
+
+    platform = _make_platform("00" * 32)
+    message = BotMessage(
+        platform="discord",
+        message_id="msg-1",
+        user_id="user-1",
+        user_name="tester",
+        chat_id="channel-1",
+        chat_type=ChatType.GROUP,
+        content="/analyze 600519",
+        raw_data={
+            "type": 2,
+            "application_id": "app-123",
+            "token": "interaction-token",
+        },
+    )
+    # 生成超过 2000 字符的内容
+    long_content = "A" * 3500
+    response = BotResponse.text_response(long_content)
+
+    with patch("bot.platforms.discord.requests") as mock_requests:
+        mock_resp = type("R", (), {"status_code": 200, "text": "ok"})()
+        mock_requests.patch.return_value = mock_resp
+        mock_requests.post.return_value = mock_resp
+        result = platform.send_followup(response, message)
+
+    assert result is True
+    # 首块使用 PATCH
+    mock_requests.patch.assert_called_once()
+    patch_url = mock_requests.patch.call_args[0][0]
+    assert "/messages/@original" in patch_url
+    # 后续块使用 POST
+    assert mock_requests.post.call_count >= 1
+    post_url = mock_requests.post.call_args[0][0]
+    assert post_url.endswith("/app-123/interaction-token")
+
+
 def test_send_followup_missing_token_returns_false():
     """缺少 interaction token 时 send_followup 应返回 False。"""
     from bot.models import BotMessage, BotResponse, ChatType
@@ -275,3 +315,31 @@ def test_non_numeric_timestamp_is_rejected():
     assert message is None
     assert response is not None
     assert response.status_code == 401
+
+
+def test_boolean_option_true_emits_name():
+    """布尔 True 选项应输出 option name，而非字面 'true'。"""
+    platform = _make_platform("00" * 32)
+    interaction_data = {
+        "name": "analyze",
+        "options": [
+            {"name": "stock_code", "value": "600519"},
+            {"name": "full", "value": True},
+        ],
+    }
+    content = platform._build_command_content(interaction_data)
+    assert content == "/analyze 600519 full"
+
+
+def test_boolean_option_false_is_omitted():
+    """布尔 False 选项应被忽略，不出现在命令内容中。"""
+    platform = _make_platform("00" * 32)
+    interaction_data = {
+        "name": "analyze",
+        "options": [
+            {"name": "stock_code", "value": "600519"},
+            {"name": "full", "value": False},
+        ],
+    }
+    content = platform._build_command_content(interaction_data)
+    assert content == "/analyze 600519"

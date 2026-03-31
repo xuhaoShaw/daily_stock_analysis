@@ -223,12 +223,16 @@ class DiscordPlatform(BotPlatform):
 
         return WebhookResponse.success(discord_response)
     
+    # Discord message content hard limit
+    DISCORD_MAX_CONTENT_LENGTH = 2000
+
     def send_followup(self, response: Any, message: BotMessage) -> bool:
         """Edit the deferred interaction placeholder with the real result.
 
         Uses ``PATCH /webhooks/{application_id}/{token}/messages/@original``
-        to update the original deferred message created by the type-5
-        acknowledgement returned from :meth:`handle_webhook`.
+        to update the original deferred message, then sends additional
+        follow-up messages via ``POST`` if the content exceeds Discord's
+        2 000-character limit.
         """
         raw = message.raw_data
         application_id = raw.get("application_id", "")
@@ -240,29 +244,60 @@ class DiscordPlatform(BotPlatform):
             return False
 
         content = response.text if hasattr(response, "text") else str(response)
-        url = (
-            f"https://discord.com/api/v10/webhooks/"
-            f"{application_id}/{interaction_token}/messages/@original"
-        )
+
+        from src.formatters import chunk_content_by_max_words
 
         try:
-            resp = requests.patch(
-                url,
-                json={"content": content},
-                timeout=10,
+            chunks = chunk_content_by_max_words(
+                content, self.DISCORD_MAX_CONTENT_LENGTH
             )
-            if resp.status_code < 300:
-                logger.info("[Discord] follow-up 消息发送成功")
-                return True
-            logger.error(
-                "[Discord] follow-up 发送失败: %s %s",
-                resp.status_code,
-                resp.text[:200],
-            )
-            return False
-        except Exception as exc:
-            logger.error("[Discord] follow-up 请求异常: %s", exc)
-            return False
+        except (ValueError, Exception) as exc:
+            logger.warning("[Discord] 消息分块失败: %s，尝试整段发送", exc)
+            chunks = [content]
+
+        base_url = (
+            f"https://discord.com/api/v10/webhooks/"
+            f"{application_id}/{interaction_token}"
+        )
+
+        success = True
+        for idx, chunk in enumerate(chunks):
+            try:
+                if idx == 0:
+                    # PATCH the original deferred message
+                    resp = requests.patch(
+                        f"{base_url}/messages/@original",
+                        json={"content": chunk},
+                        timeout=10,
+                    )
+                else:
+                    # POST additional follow-up messages
+                    resp = requests.post(
+                        base_url,
+                        json={"content": chunk},
+                        timeout=10,
+                    )
+                if resp.status_code >= 300:
+                    logger.error(
+                        "[Discord] follow-up chunk %d/%d 发送失败: %s %s",
+                        idx + 1,
+                        len(chunks),
+                        resp.status_code,
+                        resp.text[:200],
+                    )
+                    success = False
+            except Exception as exc:
+                logger.error(
+                    "[Discord] follow-up chunk %d/%d 请求异常: %s",
+                    idx + 1,
+                    len(chunks),
+                    exc,
+                )
+                success = False
+
+        if success:
+            logger.info("[Discord] follow-up 消息发送成功 (%d 块)", len(chunks))
+        return success
 
     def handle_challenge(self, data: Dict[str, Any]) -> Optional[WebhookResponse]:
         """处理 Discord 验证请求
@@ -318,7 +353,14 @@ class DiscordPlatform(BotPlatform):
             if value is None:
                 continue
             if isinstance(value, bool):
-                parts.append(str(value).lower())
+                # Emit the option name for truthy flags so downstream
+                # commands receive a semantic token (e.g. "full") instead
+                # of a literal "true"/"false" string.  False flags are
+                # simply omitted.
+                if value:
+                    opt_name = str(option.get("name", "")).strip()
+                    if opt_name:
+                        parts.append(opt_name)
             else:
                 parts.append(str(value))
 
