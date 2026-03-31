@@ -159,15 +159,26 @@ class StockAnalysisPipeline:
 
     @staticmethod
     def _hk_variants(code: str) -> List[str]:
-        """Return HK canonical variants so bare digits and HK-prefixed forms match."""
+        """Return HK canonical variants so bare digits and HK-prefixed forms match.
+
+        For any HK-style code, this generates up to three canonical forms
+        (HK-prefixed padded, bare padded, bare stripped) minus the input itself,
+        so that ``700``, ``00700``, and ``HK00700`` all resolve to each other.
+        """
         upper = code.upper()
-        variants: List[str] = []
+        digits: str = ""
         if upper.startswith("HK") and upper[2:].isdigit() and 1 <= len(upper) - 2 <= 5:
-            bare = upper[2:].lstrip("0") or "0"
-            variants.append(bare.zfill(5))
+            digits = upper[2:]
         elif upper.isdigit() and 1 <= len(upper) <= 5:
-            variants.append(f"HK{upper.zfill(5)}")
-        return variants
+            digits = upper
+
+        if not digits:
+            return []
+
+        padded = digits.zfill(5)
+        stripped = digits.lstrip("0") or "0"
+        forms = {f"HK{padded}", padded, stripped} - {upper}
+        return list(forms)
 
     def _build_manual_stock_name_lookup(self) -> Dict[str, str]:
         """Build a lookup map for raw and normalized stock-code forms."""
