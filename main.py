@@ -889,13 +889,10 @@ def main() -> int:
                     news_strategy_profile=getattr(config, "news_strategy_profile", "short"),
                 )
 
-            if config.gemini_api_key or config.openai_api_key:
-                analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
-                if not analyzer.is_available():
-                    logger.warning("AI 分析器初始化后不可用，请检查 API Key 配置")
-                    analyzer = None
-            else:
-                logger.warning("未检测到 API Key (Gemini/OpenAI)，将仅使用模板生成报告")
+            analyzer = GeminiAnalyzer()
+            if not analyzer.is_available():
+                logger.warning("AI 分析器不可用，将仅使用模板生成报告（支持 GEMINI_API_KEY/GEMINI_API_KEYS、OPENAI_API_KEY/OPENAI_API_KEYS、LLM_CHANNELS 等）")
+                analyzer = None
 
             run_market_review(
                 notifier=notifier,
@@ -931,9 +928,9 @@ def main() -> int:
                     news_strategy_profile=getattr(config, "news_strategy_profile", "short"),
                 )
 
-            analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
+            analyzer = GeminiAnalyzer()
             if not analyzer.is_available():
-                logger.warning("AI 分析器初始化后不可用，请检查 LLM 配置（支持 GEMINI_API_KEY/GEMINI_API_KEYS、OPENAI_API_KEY/OPENAI_API_KEYS 及其他 LiteLLM 渠道）")
+                logger.warning("AI 分析器不可用，将仅使用舆情文本输出（支持 GEMINI_API_KEY/GEMINI_API_KEYS、OPENAI_API_KEY/OPENAI_API_KEYS、LLM_CHANNELS 等）")
                 analyzer = None
 
             run_stock_recommendation(
