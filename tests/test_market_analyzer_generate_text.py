@@ -435,6 +435,36 @@ class TestMarketAnalyzerBypassFix:
         assert "### 6. Strategy Framework" in result
         assert "### 一、市场总结" not in result
 
+    def test_generate_template_review_keeps_chinese_shell_for_us_when_report_language_is_default(self):
+        from src.core.market_profile import US_PROFILE
+        from src.core.market_strategy import get_market_strategy_blueprint
+        from src.market_analyzer import MarketOverview, MarketIndex
+
+        ma = self._make_market_analyzer_with_mock_generate_text(return_value=None)
+        ma.region = "us"
+        ma.profile = US_PROFILE
+        ma.strategy = get_market_strategy_blueprint("us")
+        overview = MarketOverview(
+            date="2026-03-05",
+            indices=[
+                MarketIndex(
+                    code="SPX",
+                    name="标普500",
+                    current=5200.0,
+                    change=-18.0,
+                    change_pct=-0.35,
+                )
+            ],
+        )
+
+        result = ma.generate_market_review(overview, [])
+
+        assert "## 2026-03-05 大盘复盘" in result
+        assert "### 一、市场总结" in result
+        assert "今日美股市场整体呈现**小幅下跌**态势。" in result
+        assert "### 1. Market Summary" not in result
+        assert "US Market Recap" not in result
+
     def test_inject_data_into_review_matches_english_headings(self):
         from src.market_analyzer import MarketOverview, MarketIndex
 

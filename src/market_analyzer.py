@@ -133,10 +133,16 @@ class MarketAnalyzer:
             return "en"
         return configured
 
-    def _get_market_scope_name(self) -> str:
+    def _get_template_review_language(self) -> str:
+        return normalize_report_language(
+            getattr(getattr(self, "config", None), "report_language", "zh")
+        )
+
+    def _get_market_scope_name(self, review_language: str | None = None) -> str:
+        review_language = review_language or self._get_review_language()
         if self.region == "us":
             return "US market"
-        if self._get_review_language() == "en":
+        if review_language == "en":
             return "A-share market"
         return "A股市场"
 
@@ -183,8 +189,9 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 - Balanced: index divergence or low-volume consolidation; keep sizing controlled and wait for confirmation.
 - Defensive: indices weaken and laggards broaden; prioritize risk control and de-risking."""
 
-    def _get_strategy_markdown_block(self) -> str:
-        if not (self.region == "cn" and self._get_review_language() == "en"):
+    def _get_strategy_markdown_block(self, review_language: str | None = None) -> str:
+        review_language = review_language or self._get_review_language()
+        if not (self.region == "cn" and review_language == "en"):
             return self.strategy.to_markdown_block()
         return """### 6. Strategy Framework
 - **Trend Structure**: Determine whether the market is in an uptrend, range, or defensive phase.
@@ -192,8 +199,9 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 - **Leading Themes**: Focus on sectors with catalysts and sustained leadership while avoiding broadening weakness.
 """
 
-    def _get_market_mood_text(self, mood_key: str) -> str:
-        if self._get_review_language() == "en":
+    def _get_market_mood_text(self, mood_key: str, review_language: str | None = None) -> str:
+        review_language = review_language or self._get_review_language()
+        if review_language == "en":
             mapping = {
                 "strong_up": "strong gains",
                 "mild_up": "moderate gains",
@@ -734,6 +742,7 @@ Output the report content directly, no extra commentary.
     
     def _generate_template_review(self, overview: MarketOverview, news: List) -> str:
         """使用模板生成复盘报告（无大模型时的备选方案）"""
+        template_language = self._get_template_review_language()
         mood_code = self.profile.mood_index_code
         # 根据 mood_index_code 查找对应指数
         # cn: mood_code="000001"，idx.code 可能为 "sh000001"（以 mood_code 结尾）
@@ -748,15 +757,15 @@ Output the report content directly, no extra commentary.
         )
         if mood_index:
             if mood_index.change_pct > 1:
-                market_mood = self._get_market_mood_text("strong_up")
+                market_mood = self._get_market_mood_text("strong_up", template_language)
             elif mood_index.change_pct > 0:
-                market_mood = self._get_market_mood_text("mild_up")
+                market_mood = self._get_market_mood_text("mild_up", template_language)
             elif mood_index.change_pct > -1:
-                market_mood = self._get_market_mood_text("mild_down")
+                market_mood = self._get_market_mood_text("mild_down", template_language)
             else:
-                market_mood = self._get_market_mood_text("strong_down")
+                market_mood = self._get_market_mood_text("strong_down", template_language)
         else:
-            market_mood = self._get_market_mood_text("range")
+            market_mood = self._get_market_mood_text("range", template_language)
         
         # 指数行情（简洁格式）
         indices_text = ""
@@ -765,11 +774,11 @@ Output the report content directly, no extra commentary.
             indices_text += f"- **{idx.name}**: {idx.current:.2f} ({direction}{abs(idx.change_pct):.2f}%)\n"
         
         # 板块信息
-        separator = ", " if self._get_review_language() == "en" else "、"
+        separator = ", " if template_language == "en" else "、"
         top_text = separator.join([s['name'] for s in overview.top_sectors[:3]])
         bottom_text = separator.join([s['name'] for s in overview.bottom_sectors[:3]])
 
-        if self._get_review_language() == "en":
+        if template_language == "en":
             stats_section = ""
             if self.profile.has_market_stats:
                 stats_section = f"""
@@ -789,10 +798,11 @@ Output the report content directly, no extra commentary.
 - **Leaders**: {top_text or "N/A"}
 - **Laggards**: {bottom_text or "N/A"}
 """
-            report = f"""{self._get_review_title(overview.date)}
+            market_name = "US Market Recap" if self.region == "us" else "A-share Market Recap"
+            report = f"""## {overview.date} {market_name}
 
 ### 1. Market Summary
-Today's {self._get_market_scope_name()} showed **{market_mood}**.
+Today's {self._get_market_scope_name(template_language)} showed **{market_mood}**.
 
 ### 2. Major Indices
 {indices_text or "- No index data available"}
@@ -801,7 +811,7 @@ Today's {self._get_market_scope_name()} showed **{market_mood}**.
 ### 5. Risk Alerts
 Market conditions can change quickly. The data above is for reference only and does not constitute investment advice.
 
-{self._get_strategy_markdown_block()}
+{self._get_strategy_markdown_block(template_language)}
 
 ---
 *Review Time: {datetime.now().strftime('%H:%M')}*
@@ -828,8 +838,8 @@ Market conditions can change quickly. The data above is for reference only and d
 - **领跌**: {bottom_text}
 """
         market_label = "A股" if self.region == "cn" else "美股"
-        strategy_summary = self._get_strategy_markdown_block()
-        return f"""{self._get_review_title(overview.date)}
+        strategy_summary = self._get_strategy_markdown_block(template_language)
+        return f"""## {overview.date} 大盘复盘
 
 ### 一、市场总结
 今日{market_label}市场整体呈现**{market_mood}**态势。
