@@ -103,7 +103,7 @@ def get_stock_name_index_map() -> Dict[str, str]:
                     len(_STOCK_INDEX_CACHE),
                 )
                 return _STOCK_INDEX_CACHE
-            except (OSError, ValueError, json.JSONDecodeError) as exc:
+            except (OSError, json.JSONDecodeError) as exc:
                 logger.debug("[股票名称] 读取股票索引失败 %s: %s", candidate_path, exc)
 
         _STOCK_INDEX_CACHE = {}

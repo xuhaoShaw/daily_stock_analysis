@@ -58,10 +58,11 @@ class TestStockIndexLoader(unittest.TestCase):
             self.assertEqual(stock_index_loader.get_index_stock_name("000001"), "平安银行")
 
     def test_get_index_stock_name_returns_none_when_index_missing(self):
-        missing_path = Path("/tmp/non-existent-stocks.index.json")
-        with patch.object(stock_index_loader, "get_stock_index_candidate_paths", return_value=(missing_path,)):
-            self.assertEqual(stock_index_loader.get_stock_name_index_map(), {})
-            self.assertIsNone(stock_index_loader.get_index_stock_name("000001"))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing_path = Path(temp_dir) / "stocks.index.json"
+            with patch.object(stock_index_loader, "get_stock_index_candidate_paths", return_value=(missing_path,)):
+                self.assertEqual(stock_index_loader.get_stock_name_index_map(), {})
+                self.assertIsNone(stock_index_loader.get_index_stock_name("000001"))
 
 
 if __name__ == "__main__":

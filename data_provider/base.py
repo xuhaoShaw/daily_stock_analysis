@@ -1445,9 +1445,10 @@ class DataFetcherManager:
         获取股票中文名称（自动切换数据源）
         
         尝试从多个数据源获取股票名称：
-        1. 先从实时行情缓存中获取（如果有）
-        2. 依次尝试各个数据源的 get_stock_name 方法
-        3. 最后尝试让大模型通过搜索获取（需要外部调用）
+        1. 先从内存缓存中获取（如果有）
+        2. 再尝试本地维护映射与 stocks.index.json 索引
+        3. 然后按需查询实时行情
+        4. 依次尝试各个数据源的 get_stock_name 方法
         
         Args:
             stock_code: 股票代码
@@ -1468,6 +1469,13 @@ class DataFetcherManager:
         if cached_name is not None:
             return cached_name
         
+        if is_meaningful_stock_name(static_name, stock_code):
+            return self._cache_stock_name(stock_code, static_name) or static_name
+
+        index_name = get_index_stock_name(stock_code)
+        if is_meaningful_stock_name(index_name, stock_code):
+            return self._cache_stock_name(stock_code, index_name) or index_name
+
         # 2. 尝试从实时行情中获取（最快，可按需禁用）
         if allow_realtime:
             quote = self.get_realtime_quote(raw_stock_code or stock_code, log_final_failure=False)
@@ -1476,13 +1484,6 @@ class DataFetcherManager:
                 self._cache_stock_name(stock_code, name)
                 logger.info(f"[股票名称] 从实时行情获取: {stock_code} -> {name}")
                 return name
-
-        index_name = get_index_stock_name(stock_code)
-        if is_meaningful_stock_name(index_name, stock_code):
-            return self._cache_stock_name(stock_code, index_name) or index_name
-
-        if is_meaningful_stock_name(static_name, stock_code):
-            return self._cache_stock_name(stock_code, static_name) or static_name
 
         # 3. 依次尝试各个数据源
         from .akshare_fetcher import _is_us_code
