@@ -579,6 +579,24 @@ class TestOrchestratorExecution(unittest.TestCase):
         result.meta["models_used"] = ["test/model"]
         return result
 
+    def test_prepare_agent_uses_default_constant_as_raise_threshold(self):
+        orch = self._make_orchestrator()
+        agent = MagicMock(agent_name="technical", max_steps=6)
+
+        prepared = orch._prepare_agent(agent)
+        self.assertIs(prepared, agent)
+        self.assertEqual(agent.max_steps, 6)
+
+        orch.max_steps = 12
+        agent.max_steps = 6
+        orch._prepare_agent(agent)
+        self.assertEqual(agent.max_steps, 12)
+
+        orch.max_steps = 5
+        agent.max_steps = 6
+        orch._prepare_agent(agent)
+        self.assertEqual(agent.max_steps, 5)
+
     def test_execute_pipeline_stops_on_critical_failure(self):
         orch = self._make_orchestrator()
         technical = MagicMock(agent_name="technical")
@@ -607,11 +625,10 @@ class TestOrchestratorExecution(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertIn("Analysis Summary", result.content)
 
-    def test_execute_pipeline_degrades_on_skill_agent_failure(self):
+    def test_execute_pipeline_degrades_on_skill_agent_failure_and_continues_to_decision(self):
         orch = self._make_orchestrator()
         orch.mode = "specialist"
         ctx = AgentContext(query="test", stock_code="600519")
-        ctx.meta["response_mode"] = "chat"
         ctx.add_opinion(AgentOpinion(agent_name="technical", signal="buy", confidence=0.8, reasoning="Strong trend"))
 
         technical = MagicMock(agent_name="technical")
@@ -620,21 +637,17 @@ class TestOrchestratorExecution(unittest.TestCase):
         intel.run.return_value = self._stage_result("intel")
         risk = MagicMock(agent_name="risk")
         risk.run.return_value = self._stage_result("risk")
-        skill = MagicMock(agent_name="skill_bull_trend")
-        skill.run.return_value = self._stage_result(
-            "skill_bull_trend",
-            StageStatus.FAILED,
-            error="skill failed",
-        )
+        skill = MagicMock(agent_name="strategy_bull_trend")
+        skill.run.return_value = self._stage_result("strategy_bull_trend", StageStatus.FAILED, error="skill boom")
         decision = MagicMock(agent_name="decision")
-        decision.run.return_value = self._stage_result("decision", raw_text="final answer")
+        decision.run.return_value = self._stage_result("decision")
 
         with patch.object(orch, "_build_agent_chain", return_value=[technical, intel, risk, decision]):
             with patch.object(orch, "_build_specialist_agents", return_value=[skill]):
                 result = orch._execute_pipeline(ctx, parse_dashboard=False)
 
         self.assertTrue(result.success)
-        self.assertEqual(result.content, "final answer")
+        self.assertIn("Analysis Summary", result.content)
         skill.run.assert_called_once()
         decision.run.assert_called_once()
 

@@ -417,6 +417,9 @@ def setup_env(override: bool = False):
     load_dotenv(dotenv_path=env_path, override=override)
 
 
+AGENT_MAX_STEPS_DEFAULT = 10
+
+
 @dataclass
 class Config:
     """
