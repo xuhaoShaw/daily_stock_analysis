@@ -619,8 +619,6 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                 realtime = enhanced_context.get('realtime') or {}
                 current_price = realtime.get('price')
                 change_pct = realtime.get('change_pct')
-                if change_pct is None:
-                    change_pct = realtime.get('change_60d')
                 realtime_quote_raw = context_snapshot.get('realtime_quote_raw') or {}
                 if current_price is None:
                     current_price = realtime_quote_raw.get('price')

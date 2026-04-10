@@ -127,6 +127,50 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         self.assertEqual(result.result.report["meta"]["current_price"], 180.35)
         self.assertEqual(result.result.report["meta"]["change_pct"], -1.25)
 
+    def test_get_analysis_status_completed_db_snapshot_does_not_use_change_60d_as_intraday_change(self) -> None:
+        if get_analysis_status is None:
+            self.skipTest("analysis endpoint helpers unavailable in this environment")
+
+        mock_queue = MagicMock()
+        mock_queue.get_task.return_value = None
+        mock_db = MagicMock()
+        mock_db.get_analysis_history.return_value = [
+            SimpleNamespace(
+                id=3,
+                code="MSFT",
+                name="Microsoft",
+                report_type="detailed",
+                raw_result={"report_language": "en", "model_used": "test-model"},
+                context_snapshot={
+                    "enhanced_context": {
+                        "realtime": {
+                            "price": 412.6,
+                            "change_pct": None,
+                            "change_60d": 14.8,
+                        }
+                    },
+                    "realtime_quote_raw": {"price": 412.6},
+                },
+                sentiment_score=70,
+                operation_advice="Hold",
+                trend_prediction="Neutral",
+                analysis_summary="summary",
+                ideal_buy=None,
+                secondary_buy=None,
+                stop_loss=None,
+                take_profit=None,
+                created_at=None,
+            )
+        ]
+
+        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=mock_queue), \
+             patch("src.storage.DatabaseManager.get_instance", return_value=mock_db):
+            result = get_analysis_status("task-3")
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.result.report["meta"]["current_price"], 412.6)
+        self.assertIsNone(result.result.report["meta"]["change_pct"])
+
     def test_report_type_full_maps_to_full_pipeline_mode(self) -> None:
         service = object.__new__(AnalysisService)
         pipeline_instance = MagicMock()
