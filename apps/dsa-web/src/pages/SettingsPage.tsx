@@ -51,6 +51,7 @@ const SettingsPage: React.FC = () => {
   const desktopImportRef = useRef<HTMLInputElement | null>(null);
   const isDesktopRuntime = typeof window !== 'undefined' && Boolean((window as DesktopWindow).dsaDesktop);
   const desktopAppVersion = getDesktopAppVersion();
+  const shouldShowDesktopVersionCard = Boolean(desktopAppVersion);
 
   // Set page title
   useEffect(() => {
@@ -298,7 +299,9 @@ const SettingsPage: React.FC = () => {
                 title="版本信息"
                 description="用于确认当前 WebUI 静态资源是否已经切换到最新构建。"
               >
-                <div className={`grid grid-cols-1 gap-3 ${isDesktopRuntime ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+                <div
+                  className={`grid grid-cols-1 gap-3 ${shouldShowDesktopVersionCard ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}
+                >
                   <div className="rounded-2xl border settings-border bg-background/40 px-4 py-3">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-text">
                       WebUI 版本
@@ -323,7 +326,7 @@ const SettingsPage: React.FC = () => {
                       {WEB_BUILD_INFO.buildTime}
                     </p>
                   </div>
-                  {isDesktopRuntime && desktopAppVersion ? (
+                  {shouldShowDesktopVersionCard ? (
                     <div className="rounded-2xl border settings-border bg-background/40 px-4 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-text">
                         桌面端版本

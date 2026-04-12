@@ -341,6 +341,19 @@ describe('SettingsPage', () => {
     expect(screen.getByText('3.12.0')).toBeInTheDocument();
   });
 
+  it('keeps version grid at three columns when desktop runtime has no usable version', async () => {
+    (window as { dsaDesktop?: unknown }).dsaDesktop = { version: '   ' };
+
+    render(<SettingsPage />);
+
+    const section = (await screen.findByRole('heading', { name: '版本信息' })).closest('section');
+    const versionGrid = section?.querySelector('div.grid.grid-cols-1.gap-3');
+
+    expect(screen.queryByText('桌面端版本')).not.toBeInTheDocument();
+    expect(versionGrid).toHaveClass('md:grid-cols-3');
+    expect(versionGrid).not.toHaveClass('md:grid-cols-4');
+  });
+
   it('falls back to build identifier when package version is still placeholder', () => {
     expect(resolveWebBuildInfo({
       packageVersion: '0.0.0',
