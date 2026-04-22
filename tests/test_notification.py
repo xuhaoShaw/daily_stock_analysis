@@ -391,6 +391,65 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertEqual(decision_types, ["buy", "hold"])
 
     @mock.patch("src.notification.get_config")
+    def test_wrap_summary_image_text_inserts_line_breaks_for_long_mixed_text(
+        self, mock_get_config: mock.MagicMock
+    ):
+        mock_get_config.return_value = _make_config()
+        service = NotificationService()
+
+        wrapped = service._wrap_summary_image_text(
+            "短期可能因RSI超买出现技术性回调，但中期在资金持续流入和强势趋势支撑下，回踩后有望延续上行",
+            max_units=18,
+        )
+
+        self.assertIn("\n", wrapped)
+        for line in wrapped.splitlines():
+            self.assertLessEqual(service._summary_image_text_width(line), 18)
+
+    @mock.patch("src.notification.get_config")
+    def test_prepare_summary_image_table_layout_expands_multi_line_rows(
+        self, mock_get_config: mock.MagicMock
+    ):
+        mock_get_config.return_value = _make_config()
+        service = NotificationService()
+
+        rows = [
+            [
+                "510300",
+                "沪深300ETF",
+                "91",
+                "关注回踩后的低吸机会",
+                "短期可能因RSI超买出现技术性回调，但中期在资金持续流入和强势趋势支撑下，回踩后有望延续上行",
+                "3.95",
+                "4.18",
+                "3.82",
+            ],
+            [
+                "600519",
+                "贵州茅台",
+                "72",
+                "持有",
+                "震荡",
+                "-",
+                "-",
+                "-",
+            ],
+        ]
+
+        wrapped_rows, row_height_units, column_widths = service._prepare_summary_image_table_layout(
+            rows,
+            "zh",
+        )
+
+        self.assertEqual(len(wrapped_rows), 2)
+        self.assertEqual(len(column_widths), len(rows[0]))
+        self.assertAlmostEqual(sum(column_widths), 1.0)
+        self.assertIn("\n", wrapped_rows[0][3])
+        self.assertIn("\n", wrapped_rows[0][4])
+        self.assertNotIn("\n", wrapped_rows[1][4])
+        self.assertGreater(row_height_units[0], row_height_units[1])
+
+    @mock.patch("src.notification.get_config")
     def test_pick_summary_image_font_path_prefers_cjk_font(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config()
         service = NotificationService()

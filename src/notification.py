@@ -15,6 +15,8 @@ A股自选股智能分析系统 - 通知层
    - Pushover（手机/桌面推送）
 """
 import logging
+import re
+import unicodedata
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
@@ -1624,6 +1626,126 @@ class NotificationService(
         values.extend(cell for row in rows for cell in row)
         return any(any(ord(ch) > 127 for ch in str(value)) for value in values)
 
+    @staticmethod
+    def _summary_image_text_width(text: str) -> int:
+        """Estimate monospace-like display width for mixed CJK/ASCII text."""
+        width = 0
+        for ch in str(text):
+            if ch == "\n":
+                continue
+            width += 2 if unicodedata.east_asian_width(ch) in {"F", "W"} else 1
+        return width
+
+    @classmethod
+    def _split_summary_image_token(cls, token: str, max_units: int) -> List[str]:
+        """Split a long token into chunks that fit the target width."""
+        if not token:
+            return [""]
+
+        chunks: List[str] = []
+        current = ""
+        current_width = 0
+        for ch in token:
+            ch_width = cls._summary_image_text_width(ch)
+            if current and current_width + ch_width > max_units:
+                chunks.append(current.rstrip())
+                current = ch
+                current_width = ch_width
+                continue
+            current += ch
+            current_width += ch_width
+
+        if current or not chunks:
+            chunks.append(current.rstrip())
+        return chunks
+
+    @classmethod
+    def _wrap_summary_image_text(cls, value: Any, max_units: int) -> str:
+        """Insert explicit line breaks so table cells stay within bounds."""
+        text = "" if value is None else str(value).strip()
+        if not text or max_units <= 0:
+            return text
+
+        wrapped_lines: List[str] = []
+        raw_lines = text.splitlines() or [text]
+        for raw_line in raw_lines:
+            if not raw_line:
+                wrapped_lines.append("")
+                continue
+
+            current = ""
+            current_width = 0
+            tokens = re.findall(r"[A-Za-z0-9_./:%+-]+|\s+|.", raw_line)
+            for token in tokens:
+                if token.isspace():
+                    token = " "
+
+                token_width = cls._summary_image_text_width(token)
+                if token_width > max_units:
+                    if current:
+                        wrapped_lines.append(current.rstrip())
+                        current = ""
+                        current_width = 0
+
+                    split_parts = cls._split_summary_image_token(token, max_units)
+                    wrapped_lines.extend(part for part in split_parts[:-1] if part)
+                    current = split_parts[-1].lstrip()
+                    current_width = cls._summary_image_text_width(current)
+                    continue
+
+                if current and current_width + token_width > max_units:
+                    wrapped_lines.append(current.rstrip())
+                    current = "" if token.isspace() else token.lstrip()
+                    current_width = cls._summary_image_text_width(current)
+                    continue
+
+                if not current and token.isspace():
+                    continue
+
+                current += token
+                current_width += token_width
+
+            if current:
+                wrapped_lines.append(current.rstrip())
+
+        return "\n".join(wrapped_lines) or text
+
+    @staticmethod
+    def _get_summary_image_column_layout(report_language: str) -> Tuple[List[int], List[float]]:
+        """Return per-column wrap limits and normalized render widths."""
+        if report_language == "en":
+            width_units = [12, 16, 8, 14, 24, 10, 10, 10]
+        else:
+            width_units = [10, 14, 8, 14, 24, 10, 10, 10]
+
+        total_units = float(sum(width_units))
+        column_widths = [unit / total_units for unit in width_units]
+        return width_units, column_widths
+
+    def _prepare_summary_image_table_layout(
+        self,
+        rows: List[List[str]],
+        report_language: str,
+    ) -> Tuple[List[List[str]], List[float], List[float]]:
+        """Wrap row text and return row height weights for rendering."""
+        width_units, column_widths = self._get_summary_image_column_layout(report_language)
+
+        wrapped_rows: List[List[str]] = []
+        row_height_units: List[float] = []
+        for row in rows:
+            wrapped_row = [
+                self._wrap_summary_image_text(
+                    cell,
+                    width_units[min(index, len(width_units) - 1)],
+                )
+                for index, cell in enumerate(row)
+            ]
+            max_lines = max((cell.count("\n") + 1) for cell in wrapped_row) if wrapped_row else 1
+            row_height_units.append(1.0 + (max_lines - 1) * 0.8)
+            wrapped_rows.append(wrapped_row)
+
+        return wrapped_rows, row_height_units, column_widths
+
     def _build_summary_image_table_data(
         self,
         results: List[AnalysisResult],
@@ -1696,6 +1818,10 @@ class NotificationService(
             if not rows:
                 return None
 
+            wrapped_rows, row_height_units, column_widths = self._prepare_summary_image_table_layout(
+                rows, report_language
+            )
+
             title = "Stock Analysis Summary" if report_language == "en" else "A股智能分析汇总"
             summary_font, font_label = self._resolve_summary_image_font(font_manager)
             if summary_font is None and self._summary_image_contains_non_ascii(columns, rows, title):
@@ -1708,9 +1834,16 @@ class NotificationService(
 
             plt.rcParams["axes.unicode_minus"] = False
 
+            header_height_units = 1.3
+            table_height_units = header_height_units + sum(row_height_units)
+            header_cell_height = header_height_units / table_height_units
+            normalized_row_heights = [
+                height / table_height_units for height in row_height_units
+            ]
+
             row_height = 0.5
-            header_height = 0.8
-            fig_height = len(rows) * row_height + header_height + 1
+            header_margin_height = 0.8
+            fig_height = sum(row_height_units) * row_height + header_margin_height + 1
             figure, axis = plt.subplots(figsize=(12, fig_height))
             axis.axis("off")
 
@@ -1728,9 +1861,10 @@ class NotificationService(
             )
 
             table = axis.table(
-                cellText=rows,
+                cellText=wrapped_rows,
                 colLabels=columns,
                 cellLoc="center",
+                colWidths=column_widths,
                 loc="center",
                 bbox=[0, 0, 1, 1],
             )
@@ -1741,16 +1875,19 @@ class NotificationService(
             for (row_index, column_index), cell in table.get_celld().items():
                 cell.set_edgecolor("#cccccc")
                 cell.set_linewidth(0.5)
+                cell.get_text().set_wrap(True)
+                cell.get_text().set_multialignment("center")
                 if summary_font is not None:
                     cell.get_text().set_fontproperties(summary_font)
 
                 if row_index == 0:
                     cell.set_facecolor("#40466e")
                     cell.set_text_props(color="w", weight="bold")
-                    cell.set_height(0.08)
+                    cell.set_height(header_cell_height)
                     continue
 
-                cell.set_height(0.06)
+                if row_index - 1 < len(normalized_row_heights):
+                    cell.set_height(normalized_row_heights[row_index - 1])
                 if column_index != advice_column:
                     continue
 

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 
 - [修复] 企业微信聚合通知追加汇总表格图时，优先探测并强制使用系统 CJK 字体（如 Noto Sans CJK / WenQuanYi）；当运行环境缺少可用中文字体时自动跳过该附加图片，避免汉字显示为方块字且不影响主通知链路。
+- [修复] 企业微信聚合通知附加的汇总表格图对过长建议/趋势文本自动换行，并按内容自适应增高表格行高，避免长句超出单元格边框。
 - [修复] 大盘复盘链路接入 `REPORT_LANGUAGE`：`REPORT_LANGUAGE=en` 时，A 股/合并复盘的 Prompt、章节标题、模板兜底文案与通知包装标题统一改为英文，避免出现英文正文外包中文标题的问题。
 - [修复] `EfinanceFetcher.get_main_indices()` 对东方财富指数实时行情的开盘价映射改为兼容 `今开 -> 开盘 -> open`，修复部分 `efinance` 版本下指数开盘价被读成缺失值的问题（fixes #1043）
 - [修复] `AGENT_MAX_STEPS` 在 orchestrator 多 Agent 模式下统一明确为“默认作为各子 Agent 的步数上限而非硬覆盖；TechnicalAgent 等高默认值 Agent 会被封顶、低默认值 Agent 保持原值；当用户主动调高（>10）时，再统一覆盖所有子 Agent 采用全局值”，同时修复用户设置 12 但 TechnicalAgent 仍以默认 6 步运行并报 "Agent exceeded max steps" 的问题（fixes #1026）

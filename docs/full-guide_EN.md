@@ -477,6 +477,8 @@ crontab -e
 2. Copy Webhook URL
 3. Set `WECHAT_WEBHOOK_URL`
 
+> For aggregated WeChat Work notifications, the system also tries to send an extra final summary table image after the existing dashboard text/Markdown screenshot. This extra image depends on `matplotlib` plus an available CJK font; on Linux, `fonts-noto-cjk` or `fonts-wqy-zenhei` is recommended. Long `Action` / `Trend` text now wraps inside each table cell and the row height grows with the content. If the dependency or font is missing, only this extra image is skipped and the primary WeChat Work message still goes out.
+
 ### Feishu
 
 > ⚠️ **Key distinction**: `FEISHU_WEBHOOK_SECRET` (webhook signing secret) and `FEISHU_APP_SECRET` (Feishu App Secret) are two completely different configuration variables and cannot be used interchangeably.
