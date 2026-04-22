@@ -102,6 +102,7 @@ class _FakeWechatNotifier:
         )
         self._send_wechat_image = MagicMock(return_value=True)
         self.send_to_wechat = MagicMock(return_value=True)
+        self.send_wechat_summary_image = MagicMock(return_value=True)
 
 
 class TestPipelineWechatOnlyImageRouting(unittest.TestCase):
@@ -119,6 +120,7 @@ class TestPipelineWechatOnlyImageRouting(unittest.TestCase):
         )
         pipeline.notifier._send_wechat_image.assert_called_once()
         pipeline.notifier.send_to_wechat.assert_not_called()
+        pipeline.notifier.send_wechat_summary_image.assert_called_once_with(results)
 
     def test_send_notifications_wechat_only_logs_hint_and_falls_back_to_text(self):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
@@ -133,9 +135,23 @@ class TestPipelineWechatOnlyImageRouting(unittest.TestCase):
 
         pipeline.notifier._send_wechat_image.assert_not_called()
         pipeline.notifier.send_to_wechat.assert_called_once_with("wechat-dashboard")
+        pipeline.notifier.send_wechat_summary_image.assert_called_once_with(results)
         self.assertTrue(
             any("企业微信 Markdown 转图片失败" in str(call.args[0]) for call in mock_warning.call_args_list)
         )
+
+    def test_send_notifications_skips_summary_image_when_primary_wechat_send_fails(self):
+        pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+        pipeline.notifier = _FakeWechatNotifier()
+        pipeline.notifier.send_to_wechat = MagicMock(return_value=False)
+        pipeline.config = SimpleNamespace(stock_email_groups=[])
+        results = [SimpleNamespace(code="000001")]
+
+        with patch("src.md2img.markdown_to_image", return_value=None):
+            pipeline._send_notifications(results, ReportType.SIMPLE)
+
+        pipeline.notifier.send_to_wechat.assert_called_once_with("wechat-dashboard")
+        pipeline.notifier.send_wechat_summary_image.assert_not_called()
 
 
 if __name__ == "__main__":

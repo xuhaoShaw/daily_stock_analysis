@@ -1563,6 +1563,8 @@ class StockAnalysisPipeline:
                         wechat_success = self.notifier._send_wechat_image(wechat_image_bytes)
                     else:
                         wechat_success = self.notifier.send_to_wechat(dashboard_content)
+                    if wechat_success and hasattr(self.notifier, "send_wechat_summary_image"):
+                        self.notifier.send_wechat_summary_image(results)
 
                 # 其他渠道：发完整报告（避免自定义 Webhook 被 wechat 截断逻辑污染）
                 non_wechat_success = False

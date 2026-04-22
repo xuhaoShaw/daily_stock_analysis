@@ -348,6 +348,85 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         mock_batch.assert_called_once()
 
     @mock.patch("src.notification.get_config")
+    def test_build_summary_image_table_data_sorts_and_extracts_prices(self, mock_get_config: mock.MagicMock):
+        mock_get_config.return_value = _make_config()
+        service = NotificationService()
+        high_score = AnalysisResult(
+            code="600519",
+            name="贵州茅台",
+            sentiment_score=88,
+            trend_prediction="看多",
+            operation_advice="买入",
+            decision_type="buy",
+            dashboard={
+                "battle_plan": {
+                    "sniper_points": {
+                        "ideal_buy": "180.50元（支撑位）",
+                        "take_profit": "195.5元",
+                        "stop_loss": "172元",
+                    }
+                }
+            },
+        )
+        low_score = AnalysisResult(
+            code="000001",
+            name="平安银行",
+            sentiment_score=52,
+            trend_prediction="震荡",
+            operation_advice="持有",
+        )
+
+        columns, rows, decision_types, report_language = service._build_summary_image_table_data(
+            [low_score, high_score]
+        )
+
+        self.assertEqual(report_language, "zh")
+        self.assertEqual(columns, ["代码", "名称", "评分", "建议", "趋势", "买点", "卖点", "止损"])
+        self.assertEqual(rows[0][0], "600519")
+        self.assertEqual(rows[0][5], "180.50")
+        self.assertEqual(rows[0][6], "195.5")
+        self.assertEqual(rows[0][7], "172")
+        self.assertEqual(rows[1][0], "000001")
+        self.assertEqual(rows[1][5:], ["-", "-", "-"])
+        self.assertEqual(decision_types, ["buy", "hold"])
+
+    @mock.patch("src.notification.get_config")
+    def test_pick_summary_image_font_path_prefers_cjk_font(self, mock_get_config: mock.MagicMock):
+        mock_get_config.return_value = _make_config()
+        service = NotificationService()
+
+        selected = service._pick_summary_image_font_path(
+            [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Medium.ttc",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            ]
+        )
+
+        self.assertEqual(selected, "/usr/share/fonts/opentype/noto/NotoSansCJK-Medium.ttc")
+
+    @mock.patch("src.notification.get_config")
+    def test_send_wechat_summary_image_delegates_to_wechat_sender(self, mock_get_config: mock.MagicMock):
+        mock_get_config.return_value = _make_config(wechat_webhook_url="https://wechat.example/hook")
+        service = NotificationService()
+        result = AnalysisResult(
+            code="600519",
+            name="贵州茅台",
+            sentiment_score=72,
+            trend_prediction="看多",
+            operation_advice="持有",
+            analysis_summary="稳健",
+        )
+
+        with mock.patch.object(service, "generate_wechat_summary_image", return_value=b"png-bytes"), mock.patch.object(
+            service, "_send_wechat_image", return_value=True
+        ) as mock_send:
+            ok = service.send_wechat_summary_image([result])
+
+        self.assertTrue(ok)
+        mock_send.assert_called_once_with(b"png-bytes")
+
+    @mock.patch("src.notification.get_config")
     @mock.patch("smtplib.SMTP_SSL")
     def test_send_to_email_via_notification_service(
         self, mock_smtp_ssl: mock.MagicMock, mock_get_config: mock.MagicMock

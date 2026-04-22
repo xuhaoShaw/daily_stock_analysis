@@ -26,6 +26,7 @@ from src.report_language import (
     get_localized_stock_name,
     get_report_labels,
     get_signal_level,
+    infer_decision_type_from_advice,
     localize_chip_health,
     localize_operation_advice,
     localize_trend_prediction,
@@ -1534,6 +1535,257 @@ class NotificationService(
             ])
 
         lines.append("")
+
+    @staticmethod
+    def _extract_summary_image_price(value: Any) -> str:
+        """Extract the first numeric price-like token for the summary table."""
+        import re
+
+        if value in (None, "", "-"):
+            return "-"
+        match = re.search(r"\d+(?:\.\d+)?", str(value))
+        return match.group(0) if match else "-"
+
+    @staticmethod
+    def _pick_summary_image_font_path(font_paths: List[str]) -> Optional[str]:
+        """Pick a likely CJK-capable system font path for summary images."""
+        preferred_tokens = [
+            "notosanscjk",
+            "notoserifcjk",
+            "notosansmonocjk",
+            "droidsansfallback",
+            "wqy-microhei",
+            "wqy-zenhei",
+            "wenquanyi",
+            "uming.ttc",
+            "ukai.ttc",
+            "arphic",
+            "simhei",
+            "yahei",
+            "arialuni",
+            "arial unicode",
+            "cymzen",
+        ]
+        normalized_paths = [(path, path.replace("\\", "/").lower()) for path in font_paths]
+        for token in preferred_tokens:
+            for original_path, normalized_path in normalized_paths:
+                if token in normalized_path:
+                    return original_path
+        return None
+
+    def _resolve_summary_image_font(self, font_manager: Any) -> Tuple[Optional[Any], Optional[str]]:
+        """Resolve a CJK-capable font for the summary image."""
+        preferred_families = [
+            "Noto Sans CJK SC",
+            "Noto Serif CJK SC",
+            "Noto Sans CJK TC",
+            "Noto Serif CJK TC",
+            "Noto Sans CJK JP",
+            "Noto Serif CJK JP",
+            "Droid Sans Fallback",
+            "WenQuanYi Micro Hei",
+            "WenQuanYi Zen Hei",
+            "AR PL UMing CN",
+            "AR PL UKai CN",
+            "SimHei",
+            "Microsoft YaHei",
+            "Arial Unicode MS",
+            "Cymzen",
+        ]
+        available_fonts = list(getattr(font_manager.fontManager, "ttflist", []) or [])
+        for family in preferred_families:
+            family_lower = family.lower()
+            for font_entry in available_fonts:
+                entry_name = str(getattr(font_entry, "name", "")).strip()
+                if entry_name.lower() == family_lower:
+                    return font_manager.FontProperties(family=[entry_name]), entry_name
+
+        try:
+            system_fonts = font_manager.findSystemFonts()
+        except Exception:
+            system_fonts = [
+                getattr(font_entry, "fname", "")
+                for font_entry in available_fonts
+                if getattr(font_entry, "fname", "")
+            ]
+        selected_path = self._pick_summary_image_font_path(system_fonts)
+        if selected_path:
+            return font_manager.FontProperties(fname=selected_path), selected_path
+        return None, None
+
+    @staticmethod
+    def _summary_image_contains_non_ascii(
+        columns: List[str],
+        rows: List[List[str]],
+        title: str,
+    ) -> bool:
+        """Detect whether the summary image contains non-ASCII text."""
+        values = [title, *columns]
+        values.extend(cell for row in rows for cell in row)
+        return any(any(ord(ch) > 127 for ch in str(value)) for value in values)
+
+    def _build_summary_image_table_data(
+        self,
+        results: List[AnalysisResult],
+    ) -> Tuple[List[str], List[List[str]], List[str], str]:
+        """Build table headers, rows, and decision types for the summary image."""
+        report_language = self._get_report_language(results)
+        if report_language == "en":
+            columns = ["Code", "Name", "Score", "Action", "Trend", "Entry", "Target", "Stop"]
+        else:
+            columns = ["代码", "名称", "评分", "建议", "趋势", "买点", "卖点", "止损"]
+
+        sorted_results = sorted(
+            results,
+            key=lambda item: getattr(item, "sentiment_score", 0),
+            reverse=True,
+        )
+
+        rows: List[List[str]] = []
+        decision_types: List[str] = []
+        for result in sorted_results:
+            dashboard = result.dashboard if isinstance(result.dashboard, dict) else {}
+            battle = dashboard.get("battle_plan", {}) if isinstance(dashboard, dict) else {}
+            sniper = battle.get("sniper_points", {}) if isinstance(battle, dict) else {}
+
+            localized_action = localize_operation_advice(result.operation_advice, report_language)
+            localized_trend = localize_trend_prediction(result.trend_prediction, report_language)
+            stock_name = get_localized_stock_name(result.name, result.code, report_language)
+            decision_type = str(
+                getattr(result, "decision_type", "")
+                or infer_decision_type_from_advice(result.operation_advice, default="hold")
+            ).strip().lower() or "hold"
+
+            rows.append([
+                str(result.code),
+                str(stock_name),
+                str(result.sentiment_score),
+                str(localized_action),
+                str(localized_trend),
+                self._extract_summary_image_price(sniper.get("ideal_buy", "-")),
+                self._extract_summary_image_price(sniper.get("take_profit", "-")),
+                self._extract_summary_image_price(sniper.get("stop_loss", "-")),
+            ])
+            decision_types.append(decision_type)
+
+        return columns, rows, decision_types, report_language
+
+    def generate_wechat_summary_image(
+        self,
+        results: List[AnalysisResult],
+    ) -> Optional[bytes]:
+        """Render the legacy-style tabular summary as PNG bytes."""
+        if not results:
+            return None
+
+        try:
+            import io
+
+            import matplotlib
+
+            matplotlib.use("Agg")
+            import matplotlib.font_manager as font_manager
+            import matplotlib.pyplot as plt
+        except Exception as exc:
+            logger.warning("汇总图片依赖不可用，跳过企业微信汇总图片: %s", exc)
+            return None
+
+        figure = None
+        try:
+            columns, rows, decision_types, report_language = self._build_summary_image_table_data(results)
+            if not rows:
+                return None
+
+            title = "Stock Analysis Summary" if report_language == "en" else "A股智能分析汇总"
+            summary_font, font_label = self._resolve_summary_image_font(font_manager)
+            if summary_font is None and self._summary_image_contains_non_ascii(columns, rows, title):
+                logger.warning(
+                    "未找到可用中文字体，跳过企业微信汇总图片；Linux 建议安装 fonts-noto-cjk 或 fonts-wqy-zenhei"
+                )
+                return None
+            if font_label:
+                logger.info("企业微信汇总图片使用字体: %s", font_label)
+
+            plt.rcParams["axes.unicode_minus"] = False
+
+            row_height = 0.5
+            header_height = 0.8
+            fig_height = len(rows) * row_height + header_height + 1
+            figure, axis = plt.subplots(figsize=(12, fig_height))
+            axis.axis("off")
+
+            title_kwargs = {
+                "fontsize": 16,
+                "pad": 20,
+                "fontweight": "bold",
+                "color": "#333333",
+            }
+            if summary_font is not None:
+                title_kwargs["fontproperties"] = summary_font
+            axis.set_title(
+                f"{title} ({datetime.now().strftime('%Y-%m-%d')})",
+                **title_kwargs,
+            )
+
+            table = axis.table(
+                cellText=rows,
+                colLabels=columns,
+                cellLoc="center",
+                loc="center",
+                bbox=[0, 0, 1, 1],
+            )
+            table.auto_set_font_size(False)
+            table.set_fontsize(11)
+
+            advice_column = columns.index("Action" if report_language == "en" else "建议")
+            for (row_index, column_index), cell in table.get_celld().items():
+                cell.set_edgecolor("#cccccc")
+                cell.set_linewidth(0.5)
+                if summary_font is not None:
+                    cell.get_text().set_fontproperties(summary_font)
+
+                if row_index == 0:
+                    cell.set_facecolor("#40466e")
+                    cell.set_text_props(color="w", weight="bold")
+                    cell.set_height(0.08)
+                    continue
+
+                cell.set_height(0.06)
+                if column_index != advice_column:
+                    continue
+
+                decision_type = decision_types[row_index - 1] if row_index - 1 < len(decision_types) else "hold"
+                if decision_type == "buy":
+                    cell.set_text_props(color="#2e7d32", weight="bold")
+                    cell.set_facecolor("#e8f5e9")
+                elif decision_type == "sell":
+                    cell.set_text_props(color="#c62828", weight="bold")
+                    cell.set_facecolor("#ffebee")
+                else:
+                    cell.set_text_props(color="#f9a825", weight="bold")
+                    cell.set_facecolor("#fffde7")
+
+            image_buffer = io.BytesIO()
+            figure.savefig(image_buffer, format="png", bbox_inches="tight", dpi=150, pad_inches=0.2)
+            image_bytes = image_buffer.getvalue()
+            if not image_bytes:
+                logger.warning("汇总图片生成完成，但未产生有效 PNG 内容")
+                return None
+            logger.info("企业微信汇总图片生成成功 (%d bytes)", len(image_bytes))
+            return image_bytes
+        except Exception as exc:
+            logger.warning("生成企业微信汇总图片失败: %s", exc, exc_info=True)
+            return None
+        finally:
+            if figure is not None:
+                plt.close(figure)
+
+    def send_wechat_summary_image(self, results: List[AnalysisResult]) -> bool:
+        """Generate and send the legacy-style summary image to WeChat."""
+        image_bytes = self.generate_wechat_summary_image(results)
+        if image_bytes is None:
+            return False
+        return self._send_wechat_image(image_bytes)
 
     def _should_use_image_for_channel(
         self, channel: NotificationChannel, image_bytes: Optional[bytes]
