@@ -32,6 +32,7 @@ from tenacity import (
 )
 
 from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS, is_bse_code
+from .recommendation_universe import get_recommendation_universe
 from .realtime_types import UnifiedRealtimeQuote, RealtimeSource
 from .us_index_mapping import get_us_index_yf_symbol, is_us_stock_code
 
@@ -730,6 +731,151 @@ class YfinanceFetcher(BaseFetcher):
         except Exception as e:
             logger.warning(f"[Yfinance] 获取美股 {stock_code} 实时行情失败: {e}，尝试 Stooq 兜底")
             return self._get_us_stock_quote_from_stooq(stock_code)
+
+    def get_market_movers(
+        self,
+        market: str = "us",
+        asset_type: str = "stock",
+        limit: int = 100,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Fetch US stock/ETF or A-share ETF recommendation candidates from Yahoo Finance."""
+        normalized_market = (market or "").strip().lower()
+        if normalized_market not in {"cn", "us"}:
+            return None
+        normalized_asset_type = (asset_type or "stock").strip().lower()
+        if normalized_asset_type not in {"stock", "etf", "all"}:
+            return None
+        if normalized_market == "cn" and normalized_asset_type == "stock":
+            return None
+
+        universe = get_recommendation_universe(normalized_market, normalized_asset_type)
+        if not universe:
+            return None
+
+        import yfinance as yf
+
+        raw_codes = [item["code"] for item in universe[: max(int(limit or 100), 1)]]
+        symbols = [self._convert_stock_code(code) for code in raw_codes]
+        by_symbol = {
+            self._convert_stock_code(item["code"]): item
+            for item in universe
+        }
+        try:
+            df = yf.download(
+                tickers=" ".join(symbols),
+                period="5d",
+                interval="1d",
+                group_by="ticker",
+                auto_adjust=True,
+                progress=False,
+                threads=True,
+            )
+        except Exception as exc:
+            logger.warning("[Yfinance] 批量获取美股推荐候选失败: %s", exc)
+            return None
+
+        if df is None or df.empty:
+            return None
+
+        def _symbol_frame(symbol: str) -> Optional[pd.DataFrame]:
+            if isinstance(df.columns, pd.MultiIndex):
+                if symbol in df.columns.get_level_values(0):
+                    return df[symbol].dropna(how="all")
+                if symbol in df.columns.get_level_values(1):
+                    return df.xs(symbol, axis=1, level=1).dropna(how="all")
+                return None
+            if len(symbols) == 1:
+                return df.dropna(how="all")
+            return None
+
+        candidates: List[Dict[str, Any]] = []
+        for symbol in symbols:
+            frame = _symbol_frame(symbol)
+            if frame is None or frame.empty or "Close" not in frame.columns:
+                continue
+            frame = frame.dropna(subset=["Close"])
+            if frame.empty:
+                continue
+            latest = frame.iloc[-1]
+            previous = frame.iloc[-2] if len(frame) > 1 else latest
+
+            price = self._safe_float(latest.get("Close"))
+            prev_close = self._safe_float(previous.get("Close"))
+            if price is None or price <= 0:
+                continue
+
+            volume = self._safe_int(latest.get("Volume"), 0) or 0
+            amount = price * volume if volume > 0 else None
+            change_amount = None
+            change_pct = None
+            if prev_close and prev_close > 0:
+                change_amount = price - prev_close
+                change_pct = change_amount / prev_close * 100
+
+            high = self._safe_float(latest.get("High"))
+            low = self._safe_float(latest.get("Low"))
+            amplitude = None
+            if high is not None and low is not None and prev_close and prev_close > 0:
+                amplitude = (high - low) / prev_close * 100
+
+            volume_ratio = None
+            if "Volume" in frame.columns and len(frame) > 2 and volume > 0:
+                past_volume = [
+                    self._safe_int(value, 0) or 0
+                    for value in frame["Volume"].iloc[:-1].tail(4).tolist()
+                ]
+                past_volume = [value for value in past_volume if value > 0]
+                if past_volume:
+                    avg_volume = sum(past_volume) / len(past_volume)
+                    if avg_volume > 0:
+                        volume_ratio = volume / avg_volume
+
+            item = by_symbol[symbol]
+            candidates.append({
+                "code": item["code"],
+                "name": item.get("name") or symbol,
+                "market": normalized_market,
+                "asset_type": item.get("asset_type") or normalized_asset_type,
+                "price": round(price, 4),
+                "change_pct": round(change_pct, 2) if change_pct is not None else None,
+                "change_amount": round(change_amount, 4) if change_amount is not None else None,
+                "volume": volume or None,
+                "amount": round(amount, 2) if amount is not None else None,
+                "volume_ratio": round(volume_ratio, 2) if volume_ratio is not None else None,
+                "turnover_rate": None,
+                "amplitude": round(amplitude, 2) if amplitude is not None else None,
+                "pe_ratio": None,
+                "total_mv": None,
+                "circ_mv": None,
+                "source": self.name,
+            })
+
+        candidates.sort(
+            key=lambda item: (
+                float(item.get("amount") or 0),
+                float(item.get("change_pct") or 0),
+            ),
+            reverse=True,
+        )
+        return candidates[:limit]
+
+    @staticmethod
+    def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
+        try:
+            if value is None or value == "":
+                return default
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+        try:
+            if value is None or value == "":
+                return default
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
 
 
 if __name__ == "__main__":

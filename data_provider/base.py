@@ -1694,12 +1694,31 @@ class DataFetcherManager:
         """获取市场活跃标的候选（自动切换数据源）。"""
         normalized_market = (market or "cn").strip().lower()
         normalized_asset_type = (asset_type or "stock").strip().lower()
-        if normalized_market not in {"cn", "a", "ashare", "a_share", "a-share"}:
+        if normalized_market in {"a", "ashare", "a_share", "a-share"}:
+            normalized_market = "cn"
+        if normalized_market not in {"cn", "us"}:
             logger.warning("[市场候选] 暂不支持市场: %s", market)
             return []
 
         last_error = ""
-        for fetcher in self._get_fetchers_snapshot():
+        fetchers = self._get_fetchers_snapshot()
+        if normalized_market == "us":
+            prefer_lb = self._longbridge_preferred()
+            source_order = (
+                ["LongbridgeFetcher", "YfinanceFetcher"]
+                if prefer_lb
+                else ["YfinanceFetcher", "LongbridgeFetcher"]
+            )
+            fetchers = sorted(
+                fetchers,
+                key=lambda item: (
+                    source_order.index(item.name)
+                    if item.name in source_order
+                    else len(source_order) + getattr(item, "priority", 99)
+                ),
+            )
+
+        for fetcher in fetchers:
             fetcher_method = getattr(type(fetcher), "get_market_movers", None)
             if fetcher_method is None or fetcher_method is BaseFetcher.get_market_movers:
                 continue
@@ -1707,7 +1726,7 @@ class DataFetcherManager:
                 lambda fetcher=fetcher: self._call_fetcher_method(
                     fetcher,
                     "get_market_movers",
-                    market="cn",
+                    market=normalized_market,
                     asset_type=normalized_asset_type,
                     limit=limit,
                 ),

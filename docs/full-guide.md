@@ -502,10 +502,11 @@ python main.py --workers 5            # 指定并发数
 
 市场推荐用于解决“我还不知道该看哪些股票/ETF”的场景。它会先从市场活跃行情中发现候选，再按透明规则打分，最后可选择把 Top N 交给现有股票分析流水线做深度分析。
 
-首版优先支持 A 股：
+当前支持 A 股与美股：
 
-- 候选来源：EFinance / AkShare 的 A 股或 ETF 实时快照，按成交额、涨跌幅等筛出活跃标的。
-- 评分因子：涨跌幅、成交额、量比、换手率、振幅、估值风险和资产类型。
+- A 股候选来源：EFinance / AkShare 的 A 股或 ETF 实时快照，按成交额、涨跌幅等筛出活跃标的；东财异常时会尝试 AkShare 新浪行情兜底。
+- 美股候选来源：内置高流动性股票/ETF 池；配置 `LONGBRIDGE_*` 时优先用长桥行情增强，未配置或失败时使用 yfinance 兜底。
+- 评分因子：涨跌幅、成交额/成交量、量比、换手率、振幅、估值风险和资产类型。
 - 输出内容：推荐分、推荐理由、风险提示、行情信号、数据来源。
 - 深度分析：可通过 Web 推荐页或 `python main.py --recommend --analyze-recommendations` 将 Top N 复用现有 `StockAnalysisPipeline` 做完整分析。
 
@@ -517,6 +518,13 @@ python main.py --recommend --recommend-market cn --recommend-limit 10
 
 # 同时推荐股票和 ETF
 python main.py --recommend --recommend-asset-type all
+
+# 推荐美股股票 / 美股 ETF
+python main.py --recommend --recommend-market us --recommend-asset-type stock
+python main.py --recommend --recommend-market us --recommend-asset-type etf
+
+# 当前可支持市场一起推荐（A 股 + 美股）
+python main.py --recommend --recommend-market all --recommend-asset-type all
 
 # 进攻型偏好，并对推荐结果做深度分析
 python main.py --recommend --recommend-risk aggressive --analyze-recommendations
@@ -531,7 +539,7 @@ RECOMMENDATION_MAX_CANDIDATES=100
 RECOMMENDATION_TOP_N=10
 ```
 
-> 港股、美股的日线和实时报价已有数据源支持，但全市场排行、ETF 池、资金流和热点榜尚未统一接入；当前选择 `hk/us/all` 时会提示能力边界，并优先返回 A 股候选。
+> 港股的日线和实时报价已有数据源支持，但全市场排行、ETF 池、资金流和热点榜尚未统一接入；当前选择 `hk` 时会提示能力边界。`all` 表示当前可支持的 A 股 + 美股。
 
 ---
 

@@ -152,6 +152,39 @@ class _EmptyDataManager:
         return ([], [])
 
 
+class _UsOnlyDataManager:
+    def __init__(self):
+        self.calls = []
+        self.market_stats_called = False
+        self.sector_rankings_called = False
+
+    def get_market_movers(self, market="cn", asset_type="stock", limit=100):
+        self.calls.append((market, asset_type, limit))
+        if market != "us":
+            return []
+        return [
+            {
+                "code": "QQQ",
+                "name": "Invesco QQQ Trust",
+                "market": "us",
+                "asset_type": "etf",
+                "price": 430.0,
+                "change_pct": 2.1,
+                "volume": 45_000_000,
+                "amount": None,
+                "source": "FakeUSFetcher",
+            }
+        ]
+
+    def get_market_stats(self):
+        self.market_stats_called = True
+        return {}
+
+    def get_sector_rankings(self, n=5):
+        self.sector_rankings_called = True
+        return ([], [])
+
+
 class _ContextFailDataManager(_FakeDataManager):
     def get_market_stats(self):
         raise RuntimeError("market stats unavailable")
@@ -183,6 +216,18 @@ class _WorkingMarketMoverFetcher:
 
     def get_market_movers(self, market="cn", asset_type="stock", limit=100):
         return [{"code": "600519", "name": "贵州茅台", "amount": 1_000_000}]
+
+
+class _RecordingMarketMoverFetcher:
+    def __init__(self, name, priority, result):
+        self.name = name
+        self.priority = priority
+        self.result = result
+        self.calls = []
+
+    def get_market_movers(self, market="cn", asset_type="stock", limit=100):
+        self.calls.append((market, asset_type, limit))
+        return self.result
 
 
 class _FakePipeline:
@@ -267,6 +312,37 @@ class TestRecommendationService(unittest.TestCase):
         self.assertFalse(data_manager.sector_rankings_called)
         self.assertTrue(any("候选为空" in note for note in result.metadata["source_notes"]))
 
+    def test_discover_supports_us_etf_without_cn_context(self):
+        data_manager = _UsOnlyDataManager()
+        service = RecommendationService(
+            config=_make_config(),
+            data_manager=data_manager,
+        )
+
+        result = service.discover(
+            RecommendationRequest(markets=["us"], asset_type="etf", top_n=1)
+        )
+
+        self.assertEqual(result.candidates[0].code, "QQQ")
+        self.assertEqual(result.candidates[0].market, "us")
+        self.assertEqual(result.candidates[0].asset_type, "etf")
+        self.assertEqual(data_manager.calls, [("us", "etf", 100)])
+        self.assertFalse(data_manager.market_stats_called)
+        self.assertFalse(data_manager.sector_rankings_called)
+        self.assertTrue(any("非 A 股候选" in note for note in result.metadata["source_notes"]))
+
+    def test_discover_all_expands_to_cn_and_us(self):
+        data_manager = _UsOnlyDataManager()
+        service = RecommendationService(
+            config=_make_config(),
+            data_manager=data_manager,
+        )
+
+        result = service.discover(RecommendationRequest(markets=["all"], top_n=1))
+
+        self.assertEqual([call[0] for call in data_manager.calls], ["cn", "us"])
+        self.assertEqual(result.metadata["markets"], ["cn", "us"])
+
     def test_discover_keeps_candidates_when_context_fails(self):
         service = RecommendationService(
             config=_make_config(),
@@ -291,6 +367,22 @@ class TestRecommendationService(unittest.TestCase):
         result = manager.get_market_movers(limit=1)
 
         self.assertEqual(result[0]["code"], "600519")
+
+    def test_manager_prefers_longbridge_for_us_when_configured_and_falls_back(self):
+        longbridge = _RecordingMarketMoverFetcher("LongbridgeFetcher", 5, None)
+        yfinance = _RecordingMarketMoverFetcher(
+            "YfinanceFetcher",
+            4,
+            [{"code": "AAPL", "name": "Apple", "market": "us", "amount": 1_000_000}],
+        )
+        manager = DataFetcherManager(fetchers=[yfinance, longbridge])
+        manager._longbridge_preferred = lambda: True
+
+        result = manager.get_market_movers(market="us", asset_type="stock", limit=1)
+
+        self.assertEqual(result[0]["code"], "AAPL")
+        self.assertEqual(longbridge.calls, [("us", "stock", 1)])
+        self.assertEqual(yfinance.calls, [("us", "stock", 1)])
 
     def test_akshare_market_movers_falls_back_to_sina_when_eastmoney_fails(self):
         module = _load_akshare_fetcher_module()

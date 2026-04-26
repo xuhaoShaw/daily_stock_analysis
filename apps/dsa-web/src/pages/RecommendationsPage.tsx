@@ -98,7 +98,7 @@ const RecommendationsPage: React.FC = () => {
         <span className="label-uppercase">Market Recommendations</span>
         <h1 className="text-2xl font-semibold text-foreground">市场热点推荐</h1>
         <p className="max-w-3xl text-sm text-secondary-text">
-          先从市场活跃度、成交额、量比和风险规则中发现候选，再按需把 Top N 交给现有股票分析流水线做深度分析。
+          先从 A 股实时活跃行情或美股高流动性股票/ETF 池中发现候选，再按需把 Top N 交给现有股票分析流水线做深度分析。
         </p>
       </div>
 
@@ -108,9 +108,9 @@ const RecommendationsPage: React.FC = () => {
             <span className="text-secondary-text">市场</span>
             <select className={INPUT_CLASS} value={market} onChange={(e) => setMarket(e.target.value as RecommendationMarket)}>
               <option value="cn">A 股</option>
-              <option value="hk">港股（候选池待扩展）</option>
-              <option value="us">美股（候选池待扩展）</option>
-              <option value="all">全部（当前优先 A 股）</option>
+              <option value="hk">港股（暂未支持候选池）</option>
+              <option value="us">美股</option>
+              <option value="all">全部（A 股 + 美股）</option>
             </select>
           </label>
           <label className="flex flex-col gap-2 text-sm">
@@ -222,7 +222,7 @@ const RecommendationsPage: React.FC = () => {
                   <th className="px-3 py-3">名称</th>
                   <th className="px-3 py-3">评分</th>
                   <th className="px-3 py-3">涨跌幅</th>
-                  <th className="px-3 py-3">成交额</th>
+                  <th className="px-3 py-3">成交额/成交量</th>
                   <th className="px-3 py-3">量比</th>
                   <th className="px-3 py-3">推荐理由</th>
                   <th className="px-3 py-3">风险提示</th>
@@ -235,7 +235,11 @@ const RecommendationsPage: React.FC = () => {
                     <td className="px-3 py-3 text-foreground">{candidate.name || '--'}</td>
                     <td className="px-3 py-3">{scoreBadge(candidate)}</td>
                     <td className="px-3 py-3 text-foreground">{formatPct(candidate.signals.changePct)}</td>
-                    <td className="px-3 py-3 text-foreground">{formatNumber(candidate.signals.amount)}</td>
+                    <td className="px-3 py-3 text-foreground">
+                      {typeof candidate.signals.amount === 'number'
+                        ? formatNumber(candidate.signals.amount)
+                        : formatNumber(candidate.signals.volume)}
+                    </td>
                     <td className="px-3 py-3 text-foreground">{formatNumber(candidate.signals.volumeRatio)}</td>
                     <td className="max-w-[320px] px-3 py-3 text-secondary-text">
                       <ul className="space-y-1">

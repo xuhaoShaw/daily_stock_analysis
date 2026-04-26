@@ -1571,7 +1571,7 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
     },
     "RECOMMENDATION_DEFAULT_MARKETS": {
         "title": "Recommendation Default Markets",
-        "description": "Comma-separated default markets for recommendation discovery. First release supports cn.",
+        "description": "Comma-separated default markets for recommendation discovery. Supports cn/us/all; hk candidate discovery is not yet supported.",
         "category": "recommendation",
         "data_type": "array",
         "ui_control": "text",

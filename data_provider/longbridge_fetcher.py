@@ -25,11 +25,12 @@ import time
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import pandas as pd
 
 from .base import BaseFetcher, STANDARD_COLUMNS
+from .recommendation_universe import get_recommendation_universe
 from .realtime_types import UnifiedRealtimeQuote, RealtimeSource, safe_float
 from .us_index_mapping import is_us_stock_code, is_us_index_code
 
@@ -618,6 +619,101 @@ class LongbridgeFetcher(BaseFetcher):
             f"价格={price}, 量比={volume_ratio}, 换手率={turnover_rate}"
         )
         return quote
+
+    def get_market_movers(
+        self,
+        market: str = "us",
+        asset_type: str = "stock",
+        limit: int = 100,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Fetch US stock/ETF recommendation candidates from a stable seed universe."""
+        if (market or "").strip().lower() != "us":
+            return None
+        normalized_asset_type = (asset_type or "stock").strip().lower()
+        if normalized_asset_type not in {"stock", "etf", "all"}:
+            return None
+        if not self._is_available():
+            return None
+
+        universe = get_recommendation_universe("us", normalized_asset_type)
+        if not universe:
+            return None
+
+        ctx = self._get_ctx()
+        if ctx is None:
+            return None
+
+        symbol_to_item: Dict[str, Dict[str, str]] = {}
+        symbols: List[str] = []
+        for item in universe[: max(int(limit or 100), 1)]:
+            symbol = _to_longbridge_symbol(item["code"])
+            if not symbol:
+                continue
+            symbol_to_item[symbol] = item
+            symbols.append(symbol)
+
+        try:
+            quotes = ctx.quote(symbols)
+        except Exception as exc:
+            logger.warning("[Longbridge] 获取美股推荐候选失败: %s", exc)
+            if self._is_connection_error(exc):
+                self._invalidate_ctx()
+            return None
+
+        candidates: List[Dict[str, Any]] = []
+        for symbol, quote in zip(symbols, quotes or []):
+            item = symbol_to_item.get(symbol)
+            if item is None:
+                code = symbol[:-3] if symbol.endswith(".US") else symbol
+                item = {"code": code, "name": code, "asset_type": normalized_asset_type}
+
+            price = safe_float(getattr(quote, "last_done", None))
+            if price is None or price <= 0:
+                continue
+            prev_close = safe_float(getattr(quote, "prev_close", None))
+            high = safe_float(getattr(quote, "high", None))
+            low = safe_float(getattr(quote, "low", None))
+            volume = int(getattr(quote, "volume", 0) or 0)
+            amount = safe_float(getattr(quote, "turnover", None))
+            if amount is None and volume > 0:
+                amount = volume * price
+
+            change_amount = None
+            change_pct = None
+            amplitude = None
+            if prev_close and prev_close > 0:
+                change_amount = round(price - prev_close, 4)
+                change_pct = round((price - prev_close) / prev_close * 100, 2)
+                if high is not None and low is not None:
+                    amplitude = round((high - low) / prev_close * 100, 2)
+
+            candidates.append({
+                "code": item["code"],
+                "name": item.get("name") or item["code"],
+                "market": "us",
+                "asset_type": item.get("asset_type") or normalized_asset_type,
+                "price": price,
+                "change_pct": change_pct,
+                "change_amount": change_amount,
+                "volume": volume or None,
+                "amount": amount,
+                "volume_ratio": None,
+                "turnover_rate": None,
+                "amplitude": amplitude,
+                "pe_ratio": None,
+                "total_mv": None,
+                "circ_mv": None,
+                "source": self.name,
+            })
+
+        candidates.sort(
+            key=lambda item: (
+                float(item.get("amount") or 0),
+                float(item.get("change_pct") or 0),
+            ),
+            reverse=True,
+        )
+        return candidates[:limit]
 
     # ------------------------------------------------------------------
     # BaseFetcher abstract methods (historical daily data)

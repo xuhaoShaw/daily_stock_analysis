@@ -436,10 +436,11 @@ python main.py --workers 5            # Specify concurrency
 
 Market recommendations are for the case where you do not yet know which stocks or ETFs to analyze. The system first discovers active market candidates, ranks them with transparent rules, then can optionally pass the Top N into the existing stock analysis pipeline for deeper reports.
 
-The first release focuses on A-shares:
+Currently supported markets are A-shares and US stocks/ETFs:
 
-- Candidate sources: EFinance / AkShare real-time A-share or ETF snapshots, filtered by turnover, price change, and activity.
-- Scoring factors: price change, amount, volume ratio, turnover rate, amplitude, valuation risk, and asset type.
+- A-share sources: EFinance / AkShare real-time A-share or ETF snapshots, filtered by turnover, price change, and activity. If Eastmoney fails, AkShare Sina quotes are used as a fallback.
+- US sources: a built-in high-liquidity stock/ETF universe. Longbridge is preferred when `LONGBRIDGE_*` credentials are configured; otherwise yfinance is used as the fallback.
+- Scoring factors: price change, amount/volume, volume ratio, turnover rate, amplitude, valuation risk, and asset type.
 - Output: recommendation score, reasons, risk notes, market signals, and data sources.
 - Deep analysis: use the Web recommendations page or `python main.py --recommend --analyze-recommendations` to reuse the existing `StockAnalysisPipeline`.
 
@@ -451,6 +452,13 @@ python main.py --recommend --recommend-market cn --recommend-limit 10
 
 # Recommend both stocks and ETFs
 python main.py --recommend --recommend-asset-type all
+
+# Recommend US stocks / US ETFs
+python main.py --recommend --recommend-market us --recommend-asset-type stock
+python main.py --recommend --recommend-market us --recommend-asset-type etf
+
+# Recommend across currently supported markets (A-shares + US)
+python main.py --recommend --recommend-market all --recommend-asset-type all
 
 # Aggressive preference, then run deep analysis for the recommendations
 python main.py --recommend --recommend-risk aggressive --analyze-recommendations
@@ -465,7 +473,7 @@ RECOMMENDATION_MAX_CANDIDATES=100
 RECOMMENDATION_TOP_N=10
 ```
 
-> Hong Kong and US stocks already have daily/quote data paths, but full-market ranking, ETF pools, fund flow, and market hot lists are not yet unified. Selecting `hk/us/all` will surface this capability boundary and prioritize A-share candidates for now.
+> Hong Kong daily/quote data paths already exist, but full-market ranking, ETF pools, fund flow, and hot lists are not yet unified. Selecting `hk` will surface this capability boundary. `all` means the currently supported A-share + US markets.
 
 ---
 

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_RECOMMENDATION_MARKETS = {"cn"}
+SUPPORTED_RECOMMENDATION_MARKETS = {"cn", "us"}
 SUPPORTED_ASSET_TYPES = {"stock", "etf", "all"}
 SUPPORTED_RISK_PREFERENCES = {"conservative", "balanced", "aggressive"}
 
@@ -104,6 +104,7 @@ class RecommendationService:
             raw_candidates.extend(movers)
 
         deduped = self._dedupe_candidates(raw_candidates)
+        has_cn_candidates = any(str(item.get("market") or "cn").lower() == "cn" for item in deduped)
         if not deduped:
             market_context = {
                 "market_stats": {},
@@ -111,8 +112,15 @@ class RecommendationService:
                 "bottom_sectors": [],
                 "context_notes": ["候选为空，已跳过市场统计和板块排行补充"],
             }
-        else:
+        elif has_cn_candidates:
             market_context = self._build_market_context()
+        else:
+            market_context = {
+                "market_stats": {},
+                "top_sectors": [],
+                "bottom_sectors": [],
+                "context_notes": ["非 A 股候选已跳过 A 股市场统计和板块排行补充"],
+            }
         scored_candidates = [
             self._score_candidate(candidate, normalized_request.risk_preference)
             for candidate in deduped
@@ -122,7 +130,7 @@ class RecommendationService:
 
         if unsupported_markets:
             source_notes.append(
-                f"暂不支持 {', '.join(sorted(set(unsupported_markets)))} 全市场推荐，首版仅返回 A 股候选"
+                f"暂不支持 {', '.join(sorted(set(unsupported_markets)))} 全市场推荐，当前支持 A 股和美股候选"
             )
         if not top_candidates:
             source_notes.append("未获取到可用候选，请检查实时行情数据源或稍后重试")
@@ -211,7 +219,7 @@ class RecommendationService:
         for market in markets or ["cn"]:
             value = (market or "cn").strip().lower()
             if value == "all":
-                normalized.extend(["cn", "hk", "us"])
+                normalized.extend(["cn", "us"])
             elif value in {"a", "ashare", "a_share", "a-share"}:
                 normalized.append("cn")
             else:
@@ -306,6 +314,10 @@ class RecommendationService:
         turnover_rate = self._safe_float(raw.get("turnover_rate"))
         amplitude = self._safe_float(raw.get("amplitude"))
         pe_ratio = self._safe_float(raw.get("pe_ratio"))
+        volume = self._safe_int(raw.get("volume"))
+        market = str(raw.get("market") or "cn").lower()
+        asset_type = str(raw.get("asset_type") or "stock").lower()
+        is_etf = asset_type == "etf"
 
         if change_pct is not None:
             if change_pct > 0:
@@ -316,7 +328,11 @@ class RecommendationService:
                 risks.append(f"当日下跌 {abs(change_pct):.2f}%，趋势仍需确认")
 
             if change_pct >= 8:
-                risks.append("短线涨幅较大，注意追高和回撤风险")
+                risks.append(
+                    "短线涨幅较大，注意溢价和回撤风险"
+                    if is_etf
+                    else "短线涨幅较大，注意追高和回撤风险"
+                )
                 if risk_preference == "conservative":
                     score -= 8
             elif 2 <= change_pct < 8:
@@ -339,8 +355,14 @@ class RecommendationService:
                 risks.append("成交额偏低，流动性可能不足")
                 score -= 4
         else:
-            risks.append("缺少成交额数据")
-            score -= 5
+            if volume is not None and volume >= 1_000_000:
+                score += 3
+                reasons.append("成交量较高，具备基础流动性")
+            elif market == "us":
+                risks.append("缺少成交额数据，已按成交量辅助判断流动性")
+            else:
+                risks.append("缺少成交额数据")
+                score -= 5
 
         if volume_ratio is not None:
             if volume_ratio >= 2:
@@ -367,13 +389,15 @@ class RecommendationService:
             risks.append("日内振幅较大，需控制仓位")
             score -= 4 if risk_preference != "aggressive" else 1
 
-        if pe_ratio is not None and pe_ratio >= 80:
+        if (not is_etf) and pe_ratio is not None and pe_ratio >= 80:
             risks.append("估值指标偏高，需结合基本面确认")
             score -= 3
 
-        if str(raw.get("asset_type") or "stock") == "etf":
+        if is_etf:
             score += 2
             reasons.append("ETF 分散度较高，单一公司风险较低")
+        if market == "us":
+            reasons.append("候选来自美股高流动性股票/ETF 池")
 
         if risk_preference == "aggressive" and change_pct and change_pct > 3:
             score += 4
@@ -387,7 +411,7 @@ class RecommendationService:
             "price": self._safe_float(raw.get("price")),
             "change_pct": change_pct,
             "change_amount": self._safe_float(raw.get("change_amount")),
-            "volume": self._safe_int(raw.get("volume")),
+            "volume": volume,
             "amount": amount,
             "volume_ratio": volume_ratio,
             "turnover_rate": turnover_rate,

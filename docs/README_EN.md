@@ -42,7 +42,7 @@ English | [简体中文](../README.md) | [繁體中文](README_CHT.md)
 | AI | Decision Dashboard | One-sentence conclusion + precise entry/exit levels + action checklist |
 | Analysis | Multi-dimensional Analysis | Technicals + chip distribution + sentiment + real-time quotes |
 | Market | Global Markets | A-shares, Hong Kong stocks, US stocks |
-| Recommendations | Market Hot Picks | Discover A-share stock/ETF candidates from active realtime quotes, amount, volume ratio, and risk rules, then reuse the existing deep analysis pipeline |
+| Recommendations | Market Hot Picks | Discover A-share candidates from active quotes and US stock/ETF candidates from a high-liquidity universe, then reuse the existing deep analysis pipeline |
 | Search | Smart Autocomplete (MVP) | **[Beta]** Home search supports code/name/pinyin/aliases; the local index now covers A-shares, Hong Kong, and US stocks and can be refreshed from Tushare or AkShare data |
 | Review | Market Review | Daily overview, sectors, northbound capital flow |
 | Intel | Announcement + Capital Flow Intelligence | IntelAgent now also pulls listed-company announcements (SSE/SZSE/CNINFO) and A-share main-force capital flow, and exposes `capital_flow_signal` (`inflow/outflow/neutral/not_available`) for flow direction context |

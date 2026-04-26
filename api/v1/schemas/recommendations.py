@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 
 class RecommendationRequest(BaseModel):
-    markets: List[str] = Field(default_factory=lambda: ["cn"], description="市场范围：cn/hk/us/all")
+    markets: List[str] = Field(default_factory=lambda: ["cn"], description="市场范围：cn/us/all；hk 暂未支持候选发现")
     asset_type: Literal["stock", "etf", "all"] = Field("stock", description="资产类型")
     max_candidates: int = Field(100, ge=10, le=500, description="候选池最大数量")
     top_n: int = Field(10, ge=1, le=50, description="返回推荐数量")
