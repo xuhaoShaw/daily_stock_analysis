@@ -648,6 +648,12 @@ class Config:
     backtest_min_age_days: int = 14
     backtest_engine_version: str = "v1"
     backtest_neutral_band_pct: float = 2.0
+
+    # === 推荐功能配置 ===
+    recommendation_enabled: bool = True
+    recommendation_default_markets: List[str] = field(default_factory=lambda: ["cn"])
+    recommendation_max_candidates: int = 100
+    recommendation_top_n: int = 10
     
     # === 日志配置 ===
     log_dir: str = "./logs"  # 日志文件目录
@@ -1312,6 +1318,26 @@ class Config:
                 2.0,
                 field_name='BACKTEST_NEUTRAL_BAND_PCT',
                 minimum=0.0,
+            ),
+            recommendation_enabled=os.getenv('RECOMMENDATION_ENABLED', 'true').lower() == 'true',
+            recommendation_default_markets=[
+                value.strip().lower()
+                for value in os.getenv('RECOMMENDATION_DEFAULT_MARKETS', 'cn').split(',')
+                if value.strip()
+            ] or ['cn'],
+            recommendation_max_candidates=parse_env_int(
+                os.getenv('RECOMMENDATION_MAX_CANDIDATES'),
+                100,
+                field_name='RECOMMENDATION_MAX_CANDIDATES',
+                minimum=10,
+                maximum=500,
+            ),
+            recommendation_top_n=parse_env_int(
+                os.getenv('RECOMMENDATION_TOP_N'),
+                10,
+                field_name='RECOMMENDATION_TOP_N',
+                minimum=1,
+                maximum=50,
             ),
             log_dir=os.getenv('LOG_DIR', './logs'),
             log_level=os.getenv('LOG_LEVEL', 'INFO'),

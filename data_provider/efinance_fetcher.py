@@ -703,6 +703,100 @@ class EfinanceFetcher(BaseFetcher):
             circuit_breaker.record_failure(source_key, str(e))
             return None
 
+    def get_market_movers(
+        self,
+        market: str = "cn",
+        asset_type: str = "stock",
+        limit: int = 100,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """获取 A 股/ETF 活跃标的候选。"""
+        if (market or "cn").lower() != "cn":
+            return None
+
+        normalized_asset_type = (asset_type or "stock").lower()
+        if normalized_asset_type not in {"stock", "etf", "all"}:
+            return None
+
+        import efinance as ef
+
+        frames: List[Tuple[pd.DataFrame, str]] = []
+        try:
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+            if normalized_asset_type in {"stock", "all"}:
+                logger.info("[API调用] ef.stock.get_realtime_quotes() 获取A股推荐候选...")
+                frames.append((_ef_call_with_timeout(ef.stock.get_realtime_quotes), "stock"))
+            if normalized_asset_type in {"etf", "all"}:
+                logger.info("[API调用] ef.stock.get_realtime_quotes(['ETF']) 获取ETF推荐候选...")
+                frames.append((_ef_call_with_timeout(ef.stock.get_realtime_quotes, ['ETF']), "etf"))
+        except FuturesTimeoutError:
+            logger.warning("[推荐候选] efinance 获取市场候选超时")
+            return None
+        except Exception as exc:
+            logger.warning("[推荐候选] efinance 获取市场候选失败: %s", exc)
+            return None
+
+        candidates: List[Dict[str, Any]] = []
+        for df, current_asset_type in frames:
+            if df is None or df.empty:
+                continue
+
+            code_col = '股票代码' if '股票代码' in df.columns else 'code'
+            name_col = '股票名称' if '股票名称' in df.columns else 'name'
+            price_col = '最新价' if '最新价' in df.columns else 'price'
+            pct_col = '涨跌幅' if '涨跌幅' in df.columns else 'pct_chg'
+            chg_col = '涨跌额' if '涨跌额' in df.columns else 'change'
+            vol_col = '成交量' if '成交量' in df.columns else 'volume'
+            amt_col = '成交额' if '成交额' in df.columns else 'amount'
+            turn_col = '换手率' if '换手率' in df.columns else 'turnover_rate'
+            amp_col = '振幅' if '振幅' in df.columns else 'amplitude'
+            vol_ratio_col = '量比' if '量比' in df.columns else 'volume_ratio'
+            pe_col = '市盈率' if '市盈率' in df.columns else 'pe_ratio'
+            total_mv_col = '总市值' if '总市值' in df.columns else 'total_mv'
+            circ_mv_col = '流通市值' if '流通市值' in df.columns else 'circ_mv'
+
+            for _, row in df.iterrows():
+                code = str(row.get(code_col, "")).strip().zfill(6)
+                name = str(row.get(name_col, "")).strip()
+                if not code or code == "000000":
+                    continue
+                if current_asset_type == "stock" and is_st_stock(name):
+                    continue
+
+                change_pct = safe_float(row.get(pct_col))
+                amount = safe_float(row.get(amt_col), 0.0)
+                price = safe_float(row.get(price_col))
+                if change_pct is None or amount is None or amount <= 0:
+                    continue
+
+                candidates.append({
+                    "code": code,
+                    "name": name,
+                    "market": "cn",
+                    "asset_type": current_asset_type,
+                    "price": price,
+                    "change_pct": change_pct,
+                    "change_amount": safe_float(row.get(chg_col)),
+                    "volume": safe_int(row.get(vol_col)),
+                    "amount": amount,
+                    "volume_ratio": safe_float(row.get(vol_ratio_col)),
+                    "turnover_rate": safe_float(row.get(turn_col)),
+                    "amplitude": safe_float(row.get(amp_col)),
+                    "pe_ratio": safe_float(row.get(pe_col)),
+                    "total_mv": safe_float(row.get(total_mv_col)),
+                    "circ_mv": safe_float(row.get(circ_mv_col)),
+                    "source": self.name,
+                })
+
+        candidates.sort(
+            key=lambda item: (
+                float(item.get("amount") or 0),
+                float(item.get("change_pct") or 0),
+            ),
+            reverse=True,
+        )
+        return candidates[:limit]
+
     def _get_etf_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """
         获取 ETF 实时行情

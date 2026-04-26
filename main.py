@@ -357,6 +357,62 @@ def parse_arguments() -> argparse.Namespace:
         help='强制回测（即使已有回测结果也重新计算）'
     )
 
+    # === Market recommendations ===
+    parser.add_argument(
+        '--recommend',
+        action='store_true',
+        help='发现市场热点推荐候选'
+    )
+
+    parser.add_argument(
+        '--recommend-market',
+        type=str,
+        default=None,
+        help='推荐市场：cn/hk/us/all（默认使用配置，首版优先支持 cn）'
+    )
+
+    parser.add_argument(
+        '--recommend-asset-type',
+        type=str,
+        default='stock',
+        choices=['stock', 'etf', 'all'],
+        help='推荐资产类型：stock/etf/all'
+    )
+
+    parser.add_argument(
+        '--recommend-candidates',
+        type=int,
+        default=None,
+        help='推荐候选池大小（默认使用配置）'
+    )
+
+    parser.add_argument(
+        '--recommend-limit',
+        type=int,
+        default=None,
+        help='返回推荐数量 Top N（默认使用配置）'
+    )
+
+    parser.add_argument(
+        '--recommend-risk',
+        type=str,
+        default='balanced',
+        choices=['conservative', 'balanced', 'aggressive'],
+        help='推荐风险偏好'
+    )
+
+    parser.add_argument(
+        '--recommend-include-news',
+        action='store_true',
+        help='推荐时尝试补充热点新闻证据'
+    )
+
+    parser.add_argument(
+        '--analyze-recommendations',
+        action='store_true',
+        help='推荐后自动对 Top N 候选执行深度分析'
+    )
+
     return parser.parse_args()
 
 
@@ -819,7 +875,61 @@ def main() -> int:
             )
             return 0
 
-        # 模式1: 仅大盘复盘
+        # 模式1: 市场推荐
+        if getattr(args, 'recommend', False):
+            logger.info("模式: 市场推荐")
+            if not getattr(config, 'recommendation_enabled', True):
+                logger.warning("推荐功能未启用，请设置 RECOMMENDATION_ENABLED=true")
+                return 1
+            from src.services.recommendation_service import (
+                RecommendationRequest,
+                RecommendationService,
+            )
+
+            markets = (
+                [args.recommend_market]
+                if getattr(args, 'recommend_market', None)
+                else getattr(config, 'recommendation_default_markets', ['cn'])
+            )
+            request = RecommendationRequest(
+                markets=markets,
+                asset_type=getattr(args, 'recommend_asset_type', 'stock'),
+                max_candidates=(
+                    getattr(args, 'recommend_candidates', None)
+                    or getattr(config, 'recommendation_max_candidates', 100)
+                ),
+                top_n=(
+                    getattr(args, 'recommend_limit', None)
+                    or getattr(config, 'recommendation_top_n', 10)
+                ),
+                risk_preference=getattr(args, 'recommend_risk', 'balanced'),
+                include_news=getattr(args, 'recommend_include_news', False),
+                send_notification=not args.no_notify,
+                report_type=getattr(config, 'report_type', 'simple'),
+            )
+            service = RecommendationService(config=config)
+            recommendation_result = (
+                service.analyze_top_picks(request)
+                if getattr(args, 'analyze_recommendations', False)
+                else service.discover(request)
+            )
+
+            logger.info("推荐候选完成: 返回 %d 条", len(recommendation_result.candidates))
+            for idx, candidate in enumerate(recommendation_result.candidates, start=1):
+                logger.info(
+                    "%02d. %s %s score=%.1f reasons=%s risks=%s",
+                    idx,
+                    candidate.code,
+                    candidate.name,
+                    candidate.score,
+                    "；".join(candidate.reasons[:2]),
+                    "；".join(candidate.risks[:2]) or "暂无明显风险",
+                )
+            if recommendation_result.analyzed_results:
+                logger.info("深度分析完成: %d 条", len(recommendation_result.analyzed_results))
+            return 0
+
+        # 模式2: 仅大盘复盘
         if args.market_review:
             from src.analyzer import GeminiAnalyzer
             from src.core.market_review import run_market_review
@@ -879,7 +989,7 @@ def main() -> int:
             )
             return 0
 
-        # 模式2: 定时任务模式
+        # 模式3: 定时任务模式
         if args.schedule or config.schedule_enabled:
             logger.info("模式: 定时任务")
             logger.info(f"每日执行时间: {config.schedule_time}")

@@ -421,12 +421,51 @@ python main.py                        # Full analysis (stocks + market review)
 python main.py --market-review        # Market review only
 python main.py --no-market-review     # Stock analysis only
 python main.py --stocks 600519,300750 # Specify stocks
+python main.py --recommend            # Discover market recommendation candidates
+python main.py --recommend --analyze-recommendations # Analyze recommended Top N
 python main.py --dry-run              # Fetch data only, no AI analysis
 python main.py --no-notify            # Don't send notifications
 python main.py --schedule             # Scheduled task mode
 python main.py --debug                # Debug mode (verbose logging)
 python main.py --workers 5            # Specify concurrency
 ```
+
+---
+
+## Market Recommendations
+
+Market recommendations are for the case where you do not yet know which stocks or ETFs to analyze. The system first discovers active market candidates, ranks them with transparent rules, then can optionally pass the Top N into the existing stock analysis pipeline for deeper reports.
+
+The first release focuses on A-shares:
+
+- Candidate sources: EFinance / AkShare real-time A-share or ETF snapshots, filtered by turnover, price change, and activity.
+- Scoring factors: price change, amount, volume ratio, turnover rate, amplitude, valuation risk, and asset type.
+- Output: recommendation score, reasons, risk notes, market signals, and data sources.
+- Deep analysis: use the Web recommendations page or `python main.py --recommend --analyze-recommendations` to reuse the existing `StockAnalysisPipeline`.
+
+Common commands:
+
+```bash
+# Recommend top 10 A-share stocks
+python main.py --recommend --recommend-market cn --recommend-limit 10
+
+# Recommend both stocks and ETFs
+python main.py --recommend --recommend-asset-type all
+
+# Aggressive preference, then run deep analysis for the recommendations
+python main.py --recommend --recommend-risk aggressive --analyze-recommendations
+```
+
+Related configuration:
+
+```env
+RECOMMENDATION_ENABLED=true
+RECOMMENDATION_DEFAULT_MARKETS=cn
+RECOMMENDATION_MAX_CANDIDATES=100
+RECOMMENDATION_TOP_N=10
+```
+
+> Hong Kong and US stocks already have daily/quote data paths, but full-market ranking, ETF pools, fund flow, and market hot lists are not yet unified. Selecting `hk/us/all` will surface this capability boundary and prioritize A-share candidates for now.
 
 ---
 

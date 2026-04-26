@@ -486,6 +486,8 @@ python main.py                        # 完整分析（个股 + 大盘复盘）
 python main.py --market-review        # 仅大盘复盘
 python main.py --no-market-review     # 仅个股分析
 python main.py --stocks 600519,300750 # 指定股票
+python main.py --recommend            # 发现市场热点推荐候选
+python main.py --recommend --analyze-recommendations # 推荐后深度分析 Top N
 python main.py --dry-run              # 仅获取数据，不 AI 分析
 python main.py --no-notify            # 不发送推送
 python main.py --schedule             # 定时任务模式
@@ -493,6 +495,43 @@ python main.py --force-run            # 非交易日也强制执行（Issue #373
 python main.py --debug                # 调试模式（详细日志）
 python main.py --workers 5            # 指定并发数
 ```
+
+---
+
+## 市场推荐功能
+
+市场推荐用于解决“我还不知道该看哪些股票/ETF”的场景。它会先从市场活跃行情中发现候选，再按透明规则打分，最后可选择把 Top N 交给现有股票分析流水线做深度分析。
+
+首版优先支持 A 股：
+
+- 候选来源：EFinance / AkShare 的 A 股或 ETF 实时快照，按成交额、涨跌幅等筛出活跃标的。
+- 评分因子：涨跌幅、成交额、量比、换手率、振幅、估值风险和资产类型。
+- 输出内容：推荐分、推荐理由、风险提示、行情信号、数据来源。
+- 深度分析：可通过 Web 推荐页或 `python main.py --recommend --analyze-recommendations` 将 Top N 复用现有 `StockAnalysisPipeline` 做完整分析。
+
+常用命令：
+
+```bash
+# 推荐 A 股股票 Top 10
+python main.py --recommend --recommend-market cn --recommend-limit 10
+
+# 同时推荐股票和 ETF
+python main.py --recommend --recommend-asset-type all
+
+# 进攻型偏好，并对推荐结果做深度分析
+python main.py --recommend --recommend-risk aggressive --analyze-recommendations
+```
+
+相关配置：
+
+```env
+RECOMMENDATION_ENABLED=true
+RECOMMENDATION_DEFAULT_MARKETS=cn
+RECOMMENDATION_MAX_CANDIDATES=100
+RECOMMENDATION_TOP_N=10
+```
+
+> 港股、美股的日线和实时报价已有数据源支持，但全市场排行、ETF 池、资金流和热点榜尚未统一接入；当前选择 `hk/us/all` 时会提示能力边界，并优先返回 A 股候选。
 
 ---
 

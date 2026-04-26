@@ -46,6 +46,12 @@ from api.v1.schemas.backtest import (
     BacktestResultsResponse,
     PerformanceMetrics,
 )
+from api.v1.schemas.recommendations import (
+    RecommendationRequest,
+    RecommendationCandidate,
+    RecommendationAnalysisSummary,
+    RecommendationResponse,
+)
 from api.v1.schemas.system_config import (
     SystemConfigFieldSchema,
     SystemConfigCategorySchema,
@@ -126,6 +132,11 @@ __all__ = [
     "BacktestResultItem",
     "BacktestResultsResponse",
     "PerformanceMetrics",
+    # recommendations
+    "RecommendationRequest",
+    "RecommendationCandidate",
+    "RecommendationAnalysisSummary",
+    "RecommendationResponse",
     # system config
     "SystemConfigFieldSchema",
     "SystemConfigCategorySchema",

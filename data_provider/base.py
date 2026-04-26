@@ -325,6 +325,25 @@ class BaseFetcher(ABC):
         """
         return None
 
+    def get_market_movers(
+        self,
+        market: str = "cn",
+        asset_type: str = "stock",
+        limit: int = 100,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        获取市场活跃标的候选。
+
+        Args:
+            market: 市场区域，首版支持 cn
+            asset_type: stock / etf / all
+            limit: 最大返回数量
+
+        Returns:
+            List[Dict]: 标准化候选列表，包含 code/name/price/change_pct/amount 等字段
+        """
+        return None
+
     def get_daily_data(
         self,
         stock_code: str, 
@@ -1665,6 +1684,48 @@ class DataFetcherManager:
                 logger.warning(f"[{fetcher.name}] 获取市场统计失败: {e}")
                 continue
         return {}
+
+    def get_market_movers(
+        self,
+        market: str = "cn",
+        asset_type: str = "stock",
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """获取市场活跃标的候选（自动切换数据源）。"""
+        normalized_market = (market or "cn").strip().lower()
+        normalized_asset_type = (asset_type or "stock").strip().lower()
+        if normalized_market not in {"cn", "a", "ashare", "a_share", "a-share"}:
+            logger.warning("[市场候选] 暂不支持市场: %s", market)
+            return []
+
+        last_error = ""
+        for fetcher in self._get_fetchers_snapshot():
+            fetcher_method = getattr(type(fetcher), "get_market_movers", None)
+            if fetcher_method is None or fetcher_method is BaseFetcher.get_market_movers:
+                continue
+            data, error, _duration_ms = self._run_with_timeout(
+                lambda fetcher=fetcher: self._call_fetcher_method(
+                    fetcher,
+                    "get_market_movers",
+                    market="cn",
+                    asset_type=normalized_asset_type,
+                    limit=limit,
+                ),
+                timeout_seconds=70.0,
+                task_name=f"{fetcher.name}.get_market_movers",
+            )
+            if error:
+                last_error = f"{fetcher.name} {error}"
+                logger.warning("[%s] 获取市场候选失败: %s", fetcher.name, error)
+                continue
+            if data:
+                logger.info("[%s] 获取市场候选成功: %d 条", fetcher.name, len(data))
+                return list(data)[:limit]
+            last_error = f"{fetcher.name}返回空结果"
+
+        if last_error:
+            logger.warning("[市场候选] 所有数据源均失败，最终错误: %s", last_error)
+        return []
 
     def _run_with_timeout(
         self,

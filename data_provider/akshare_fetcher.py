@@ -27,6 +27,7 @@ import logging
 import os
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
@@ -61,6 +62,10 @@ logger = logging.getLogger(__name__)
 SINA_REALTIME_ENDPOINT = "hq.sinajs.cn/list"
 TENCENT_REALTIME_ENDPOINT = "qt.gtimg.cn/q"
 
+_AKSHARE_EASTMONEY_MARKET_MOVER_TIMEOUT = 5.0
+_AKSHARE_SINA_MARKET_MOVER_TIMEOUT = 45.0
+_AKSHARE_ETF_MARKET_MOVER_TIMEOUT = 10.0
+
 
 # User-Agent 池，用于随机轮换
 USER_AGENTS = [
@@ -89,6 +94,18 @@ _etf_realtime_cache: Dict[str, Any] = {
     'timestamp': 0,
     'ttl': 1200  # 20分钟缓存有效期
 }
+
+
+def _ak_call_with_timeout(func, *args, timeout=None, **kwargs):
+    """Run AkShare full-market calls with a bounded wait for recommendation fallback."""
+    if timeout is None:
+        timeout = _AKSHARE_SINA_MARKET_MOVER_TIMEOUT
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(func, *args, **kwargs)
+        return future.result(timeout=max(0.1, float(timeout)))
+    finally:
+        executor.shutdown(wait=False)
 
 
 def _is_etf_code(stock_code: str) -> bool:
@@ -821,6 +838,148 @@ class AkshareFetcher(BaseFetcher):
                 return self._get_stock_realtime_quote_tencent(stock_code)
             else:
                 return self._get_stock_realtime_quote_em(stock_code)
+
+    def get_market_movers(
+        self,
+        market: str = "cn",
+        asset_type: str = "stock",
+        limit: int = 100,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """获取 A 股/ETF 活跃标的候选。"""
+        if (market or "cn").lower() != "cn":
+            return None
+
+        normalized_asset_type = (asset_type or "stock").lower()
+        if normalized_asset_type not in {"stock", "etf", "all"}:
+            return None
+
+        import akshare as ak
+
+        frames: List[Tuple[pd.DataFrame, str]] = []
+        if normalized_asset_type in {"stock", "all"}:
+            try:
+                self._set_random_user_agent()
+                self._enforce_rate_limit()
+                logger.info("[API调用] ak.stock_zh_a_spot_em() 获取A股推荐候选...")
+                frames.append((
+                    _ak_call_with_timeout(
+                        ak.stock_zh_a_spot_em,
+                        timeout=_AKSHARE_EASTMONEY_MARKET_MOVER_TIMEOUT,
+                    ),
+                    "stock",
+                ))
+            except FuturesTimeoutError as exc:
+                logger.warning("[推荐候选] Akshare 东财候选超时: %s，尝试新浪行情", exc)
+                try:
+                    self._set_random_user_agent()
+                    logger.info("[API调用] ak.stock_zh_a_spot() 获取A股推荐候选(新浪)...")
+                    frames.append((
+                        _ak_call_with_timeout(
+                            ak.stock_zh_a_spot,
+                            timeout=_AKSHARE_SINA_MARKET_MOVER_TIMEOUT,
+                        ),
+                        "stock",
+                    ))
+                except FuturesTimeoutError as sina_exc:
+                    logger.warning("[推荐候选] Akshare 新浪候选超时: %s", sina_exc)
+                except Exception as sina_exc:
+                    logger.warning("[推荐候选] Akshare 新浪候选也失败: %s", sina_exc)
+            except Exception as exc:
+                logger.warning("[推荐候选] Akshare 东财候选失败: %s，尝试新浪行情", exc)
+                try:
+                    self._set_random_user_agent()
+                    logger.info("[API调用] ak.stock_zh_a_spot() 获取A股推荐候选(新浪)...")
+                    frames.append((
+                        _ak_call_with_timeout(
+                            ak.stock_zh_a_spot,
+                            timeout=_AKSHARE_SINA_MARKET_MOVER_TIMEOUT,
+                        ),
+                        "stock",
+                    ))
+                except FuturesTimeoutError as sina_exc:
+                    logger.warning("[推荐候选] Akshare 新浪候选超时: %s", sina_exc)
+                except Exception as sina_exc:
+                    logger.warning("[推荐候选] Akshare 新浪候选也失败: %s", sina_exc)
+
+        if normalized_asset_type in {"etf", "all"}:
+            try:
+                self._set_random_user_agent()
+                self._enforce_rate_limit()
+                logger.info("[API调用] ak.fund_etf_spot_em() 获取ETF推荐候选...")
+                frames.append((
+                    _ak_call_with_timeout(
+                        ak.fund_etf_spot_em,
+                        timeout=_AKSHARE_ETF_MARKET_MOVER_TIMEOUT,
+                    ),
+                    "etf",
+                ))
+            except FuturesTimeoutError as exc:
+                logger.warning("[推荐候选] Akshare ETF 候选超时: %s", exc)
+            except Exception as exc:
+                logger.warning("[推荐候选] Akshare ETF 候选失败: %s", exc)
+
+        if not frames:
+            return None
+
+        candidates: List[Dict[str, Any]] = []
+        for df, current_asset_type in frames:
+            if df is None or df.empty:
+                continue
+
+            code_col = '代码' if '代码' in df.columns else 'symbol'
+            name_col = '名称' if '名称' in df.columns else 'name'
+            price_col = '最新价' if '最新价' in df.columns else '最新'
+            pct_col = '涨跌幅' if '涨跌幅' in df.columns else '涨幅'
+            chg_col = '涨跌额' if '涨跌额' in df.columns else '涨跌'
+            vol_col = '成交量' if '成交量' in df.columns else '成交量(手)'
+            amt_col = '成交额' if '成交额' in df.columns else '成交额(元)'
+            turn_col = '换手率' if '换手率' in df.columns else '换手'
+            amp_col = '振幅' if '振幅' in df.columns else '振幅'
+            vol_ratio_col = '量比' if '量比' in df.columns else '量比'
+            pe_col = '市盈率-动态' if '市盈率-动态' in df.columns else '市盈率'
+            total_mv_col = '总市值' if '总市值' in df.columns else '总市值'
+            circ_mv_col = '流通市值' if '流通市值' in df.columns else '流通市值'
+
+            for _, row in df.iterrows():
+                code = str(row.get(code_col, "")).strip().zfill(6)
+                name = str(row.get(name_col, "")).strip()
+                if not code or code == "000000":
+                    continue
+                if current_asset_type == "stock" and is_st_stock(name):
+                    continue
+
+                change_pct = safe_float(row.get(pct_col))
+                amount = safe_float(row.get(amt_col), 0.0)
+                if change_pct is None or amount is None or amount <= 0:
+                    continue
+
+                candidates.append({
+                    "code": code,
+                    "name": name,
+                    "market": "cn",
+                    "asset_type": current_asset_type,
+                    "price": safe_float(row.get(price_col)),
+                    "change_pct": change_pct,
+                    "change_amount": safe_float(row.get(chg_col)),
+                    "volume": safe_int(row.get(vol_col)),
+                    "amount": amount,
+                    "volume_ratio": safe_float(row.get(vol_ratio_col)),
+                    "turnover_rate": safe_float(row.get(turn_col)),
+                    "amplitude": safe_float(row.get(amp_col)),
+                    "pe_ratio": safe_float(row.get(pe_col)),
+                    "total_mv": safe_float(row.get(total_mv_col)),
+                    "circ_mv": safe_float(row.get(circ_mv_col)),
+                    "source": self.name,
+                })
+
+        candidates.sort(
+            key=lambda item: (
+                float(item.get("amount") or 0),
+                float(item.get("change_pct") or 0),
+            ),
+            reverse=True,
+        )
+        return candidates[:limit]
     
     def _get_stock_realtime_quote_em(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """

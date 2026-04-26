@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from src.config import AGENT_MAX_STEPS_DEFAULT
 
-SCHEMA_VERSION = "2026-03-29"
+SCHEMA_VERSION = "2026-04-26"
 
 _CATEGORY_DEFINITIONS: List[Dict[str, Any]] = [
     {
@@ -56,6 +56,12 @@ _CATEGORY_DEFINITIONS: List[Dict[str, Any]] = [
         "title": "Backtest",
         "description": "Backtest engine behavior and evaluation parameters.",
         "display_order": 60,
+    },
+    {
+        "category": "recommendation",
+        "title": "Recommendation",
+        "description": "Market recommendation discovery and ranking settings.",
+        "display_order": 65,
     },
     {
         "category": "uncategorized",
@@ -1548,6 +1554,62 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "options": [],
         "validation": {"min": 0.0, "max": 100.0},
         "display_order": 50,
+    },
+    "RECOMMENDATION_ENABLED": {
+        "title": "Recommendation Enabled",
+        "description": "Enable market recommendation discovery APIs and Web page.",
+        "category": "recommendation",
+        "data_type": "boolean",
+        "ui_control": "switch",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "true",
+        "options": [],
+        "validation": {},
+        "display_order": 10,
+    },
+    "RECOMMENDATION_DEFAULT_MARKETS": {
+        "title": "Recommendation Default Markets",
+        "description": "Comma-separated default markets for recommendation discovery. First release supports cn.",
+        "category": "recommendation",
+        "data_type": "array",
+        "ui_control": "text",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "cn",
+        "options": ["cn", "hk", "us", "all"],
+        "validation": {},
+        "display_order": 20,
+    },
+    "RECOMMENDATION_MAX_CANDIDATES": {
+        "title": "Recommendation Max Candidates",
+        "description": "Maximum candidates fetched before ranking.",
+        "category": "recommendation",
+        "data_type": "integer",
+        "ui_control": "number",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "100",
+        "options": [],
+        "validation": {"min": 10, "max": 500},
+        "display_order": 30,
+    },
+    "RECOMMENDATION_TOP_N": {
+        "title": "Recommendation Top N",
+        "description": "Default number of recommendations returned.",
+        "category": "recommendation",
+        "data_type": "integer",
+        "ui_control": "number",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "10",
+        "options": [],
+        "validation": {"min": 1, "max": 50},
+        "display_order": 40,
     },
     "AGENT_MODE": {
         "title": "Agent Mode",
