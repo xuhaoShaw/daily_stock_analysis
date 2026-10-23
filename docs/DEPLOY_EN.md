@@ -436,13 +436,13 @@ git push
 
 ### Schedule Details
 
-Default configuration: **Monday to Friday, 18:17 Beijing Time** auto-execution, avoiding the top-of-hour scheduling peak.
+Default configuration: **Monday to Friday, 18:00 Beijing Time** auto-execution
 
 Modify time: Edit cron expression in `.github/workflows/00-daily-analysis.yml`:
 
 ```yaml
 schedule:
-  - cron: '17 10 * * 1-5'  # UTC time, +8 = Beijing time; avoids the top-of-hour peak
+  - cron: '0 10 * * 1-5'  # UTC time, +8 = Beijing time
 ```
 
 Common cron examples:

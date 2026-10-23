@@ -200,7 +200,7 @@ To get started quickly, you need at minimum:
 
 ### 5. Done!
 
-Default schedule: Every weekday at **18:17 (Beijing Time)** to avoid the top-of-hour scheduling peak.
+Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 
 ---
 
@@ -779,7 +779,7 @@ Edit `.github/workflows/00-daily-analysis.yml`:
 ```yaml
 schedule:
   # UTC time, Beijing time = UTC + 8
-  - cron: '17 10 * * 1-5'   # Monday to Friday 18:17 (Beijing Time), avoiding the top-of-hour peak
+  - cron: '0 10 * * 1-5'   # Monday to Friday 18:00 (Beijing Time)
 ```
 
 Common time reference:
